@@ -8,7 +8,7 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Instala as dependências do sistema necessárias (opcional, dependendo de pacotes como psycopg2)
+# Instala as dependências do sistema necessárias para compilar pacotes como psycopg2
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc libpq-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -25,5 +25,5 @@ COPY . .
 # Expõe a porta que o backend vai rodar
 EXPOSE 8000
 
-# Comando para iniciar o servidor (Exemplo usando Uvicorn/FastAPI. Ajuste conforme o seu framework)
+# Comando para iniciar o servidor FastAPI
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

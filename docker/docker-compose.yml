@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    container_name: omnikestr_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Adicione outras variáveis de ambiente necessárias para o backend
+      # - DATABASE_URL=postgresql://user:pass@db:5432/dbname
+    volumes:
+      - ./services/backend:/app
+    networks:
+      - omnikestr_network
+
+  watcher:
+    build:
+      context: .
+      dockerfile: services/watcher/Dockerfile
+    container_name: omnikestr_watcher
+    restart: always
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Caso o watcher precise se comunicar diretamente com o backend:
+      - BACKEND_URL=http://backend:8000
+    volumes:
+      - ./services/watcher:/app
+    depends_on:
+      - backend
+    networks:
+      - omnikestr_network
+
+networks:
+  omnikestr_network:
+    driver: bridge

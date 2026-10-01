@@ -1,35 +1,62 @@
-version: '3.8'
-
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: omnikestr_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-omnikestr}
+      POSTGRES_USER: ${POSTGRES_USER:-omnikestr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-omnikestr_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - omnikestr_network
+
   backend:
     build:
-      context: .
-      dockerfile: services/backend/Dockerfile
+      context: ../services/backend
+      dockerfile: Dockerfile
     container_name: omnikestr_backend
     restart: always
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
-      # Adicione outras variáveis de ambiente necessárias para o backend
-      # - DATABASE_URL=postgresql://user:pass@db:5432/dbname
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-omnikestr}:${POSTGRES_PASSWORD:-omnikestr_dev}@db:5432/${POSTGRES_DB:-omnikestr}
+      - PRODUCTS_ROOT=/data/products
     volumes:
-      - ./services/backend:/app
+      - ../services/backend:/app
+      - type: bind
+        source: "${PRODUCTS_DIR:-../Products}"
+        target: /data/products
+        read_only: true
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - omnikestr_network
 
   watcher:
     build:
-      context: .
-      dockerfile: services/watcher/Dockerfile
+      context: ../services/watcher
+      dockerfile: Dockerfile
     container_name: omnikestr_watcher
     restart: always
     environment:
       - PYTHONUNBUFFERED=1
+      - WATCH_DIR=/data/products
       # Caso o watcher precise se comunicar diretamente com o backend:
       - BACKEND_URL=http://backend:8000
     volumes:
-      - ./services/watcher:/app
+      - ../services/watcher:/app
+      - type: bind
+        source: "${PRODUCTS_DIR:-../Products}"
+        target: /data/products
     depends_on:
       - backend
     networks:
@@ -38,3 +65,6 @@ services:
 networks:
   omnikestr_network:
     driver: bridge
+
+volumes:
+  postgres_data:

@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Configurações | OmnIkestrAPIM</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1d3029;
+      --muted: #687870;
+      --line: #d8e0da;
+      --paper: #f3f5f1;
+      --surface: #fff;
+      --forest: #1e5b46;
+      --forest-dark: #173f34;
+      --lime: #c5dc87;
+      --copper: #bd644a;
+      --focus: #ae542f;
+      font-family: "Aptos", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      background-color: var(--paper);
+      background-image: linear-gradient(rgba(29, 48, 41, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(29, 48, 41, .025) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+
+    button { font: inherit; }
+    button:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+
+    .topbar {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 0 5vw;
+      color: #f5f7f3;
+      background: var(--forest-dark);
+      border-bottom: 4px solid var(--lime);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: inherit;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .brand-mark {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      color: var(--forest-dark);
+      background: var(--lime);
+      border-radius: 7px 2px 7px 2px;
+      font-family: Georgia, serif;
+      font-size: 18px;
+    }
+
+    .topbar-label {
+      color: #d0dbd4;
+      font-size: 13px;
+    }
+
+    main {
+      width: min(1080px, calc(100% - 40px));
+      margin: 52px auto 80px;
+    }
+
+    .eyebrow {
+      margin: 0 0 9px;
+      color: var(--copper);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(32px, 4vw, 43px);
+      font-weight: 500;
+      line-height: 1.12;
+    }
+
+    .intro {
+      max-width: 650px;
+      margin: 12px 0 30px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.65fr) minmax(245px, .8fr);
+      align-items: start;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, .82);
+    }
+
+    .browser { min-width: 0; padding: 24px; }
+
+    .browser-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 15px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .volume-label {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .pathbar {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 43px;
+      padding: 0 12px;
+      overflow-wrap: anywhere;
+      color: var(--muted);
+      background: #f2f5ef;
+      border: 1px solid var(--line);
+      font-family: Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .path-symbol { color: var(--forest); font-weight: 800; }
+    .folder-list { min-height: 194px; padding: 5px 0; }
+
+    .folder-row {
+      width: 100%;
+      min-height: 51px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 10px;
+      color: var(--ink);
+      text-align: left;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid #e8ede8;
+      cursor: pointer;
+    }
+
+    .folder-row:hover { background: #f2f6ef; }
+    .folder-glyph { color: var(--copper); font-size: 17px; }
+    .folder-name { min-width: 0; flex: 1; overflow-wrap: anywhere; font-weight: 600; }
+    .folder-arrow { color: var(--muted); font-size: 20px; }
+
+    .empty-state, .loading-state, .error-state {
+      padding: 26px 10px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .error-state { color: #9a3e32; }
+
+    .browser-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding-top: 15px;
+      border-top: 1px solid var(--line);
+    }
+
+    .secondary, .primary {
+      min-height: 42px;
+      padding: 0 15px;
+      border: 1px solid var(--line);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .secondary { color: var(--ink); background: var(--surface); }
+    .secondary:disabled { color: #9ca8a0; cursor: not-allowed; }
+    .primary { color: #fff; background: var(--forest); border-color: var(--forest); }
+    .primary:hover:not(:disabled) { background: #164a39; }
+    .primary:disabled { opacity: .55; cursor: wait; }
+
+    .selection {
+      min-height: 100%;
+      padding: 25px 22px;
+      color: #eef4ef;
+      background: var(--forest);
+    }
+
+    .selection .eyebrow { color: var(--lime); }
+    .selection h2 { margin-bottom: 18px; font-family: Georgia, serif; font-size: 22px; font-weight: 500; }
+    .selection-label { margin: 0 0 8px; color: #c6d8ce; font-size: 12px; }
+    .selected-path {
+      min-height: 66px;
+      overflow-wrap: anywhere;
+      color: white;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .selection-rule { height: 1px; margin: 21px 0; background: rgba(255,255,255,.24); }
+    .selection-note { margin: 0; color: #d6e2da; font-size: 13px; line-height: 1.55; }
+    .status { min-height: 22px; margin: 12px 0 0; color: var(--lime); font-size: 12px; }
+    .status[data-error="true"] { color: #ffd0bd; }
+
+    @media (max-width: 700px) {
+      .topbar { min-height: 60px; padding: 0 20px; }
+      .topbar-label { font-size: 12px; }
+      main { width: min(100% - 28px, 560px); margin: 34px auto 50px; }
+      .workspace { grid-template-columns: 1fr; }
+      .browser { padding: 18px 15px; }
+      .selection { padding: 20px 18px; }
+      .browser-heading { align-items: flex-start; flex-direction: column; gap: 6px; }
+      .browser-actions { align-items: stretch; flex-direction: column-reverse; }
+      .browser-actions button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="OmnIkestrAPIM, página inicial">
+      <span class="brand-mark" aria-hidden="true">O</span>
+      <span>OmnIkestrAPIM</span>
+    </a>
+    <span class="topbar-label">Configurações do sistema</span>
+  </header>
+
+  <main>
+    <p class="eyebrow">Arquivos e anúncios</p>
+    <h1>Escolha a pasta de anúncios</h1>
+    <p class="intro">Selecione a pasta que contém os diretórios dos seus produtos. O catálogo será atualizado usando esse local e a escolha ficará salva para os próximos acessos.</p>
+
+    <section class="workspace" aria-label="Configuração da pasta de anúncios">
+      <div class="browser">
+        <div class="browser-heading">
+          <h2>Pasta no Windows</h2>
+          <span id="helper-status" class="volume-label">Conferindo auxiliar...</span>
+        </div>
+        <div class="pathbar" aria-live="polite">
+          <span class="path-symbol" aria-hidden="true">D:</span>
+          <span id="current-path">Nenhuma pasta carregada</span>
+        </div>
+        <div id="folder-list" class="folder-list" aria-live="polite">
+          <div class="loading-state">Aguardando o seletor do Windows.</div>
+        </div>
+        <div class="browser-actions">
+          <button id="pick-button" class="secondary" type="button">Selecionar pasta...</button>
+          <button id="apply-button" class="primary" type="button" disabled>Aplicar e reiniciar</button>
+        </div>
+      </div>
+
+      <aside class="selection">
+        <p class="eyebrow">Pasta ativa</p>
+        <h2>Anúncios serão lidos daqui</h2>
+        <p class="selection-label">Configuração salva</p>
+        <div id="selected-path" class="selected-path">Carregando...</div>
+        <div class="selection-rule"></div>
+        <p class="selection-note">Aplicar a escolha atualiza o volume do Docker e recria o backend e o watcher. A API pode ficar indisponível por alguns segundos.</p>
+        <p id="status" class="status" role="status"></p>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const currentPath = document.querySelector("#current-path");
+    const selectedPath = document.querySelector("#selected-path");
+    const folderList = document.querySelector("#folder-list");
+    const helperStatus = document.querySelector("#helper-status");
+    const pickButton = document.querySelector("#pick-button");
+    const applyButton = document.querySelector("#apply-button");
+    const status = document.querySelector("#status");
+
+    const pickerUrl = "http://127.0.0.1:8765";
+    let selectedWindowsPath = "";
+
+    async function requestJson(url, options = {}) {
+      const response = await fetch(url, options);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || "Não foi possível concluir a operação.");
+      return body;
+    }
+
+    function setMessage(message, isError = false) {
+      status.textContent = message;
+      status.dataset.error = String(isError);
+    }
+
+    async function initialize() {
+      try {
+        const settings = await requestJson(`${pickerUrl}/status`);
+        helperStatus.textContent = "Auxiliar conectado";
+        selectedPath.textContent = settings.products_dir;
+        currentPath.textContent = settings.products_dir;
+        folderList.innerHTML = '<div class="empty-state">Selecione qualquer pasta local ou unidade mapeada, como D:\\Produtos.</div>';
+      } catch (error) {
+        helperStatus.textContent = "Auxiliar desconectado";
+        selectedPath.textContent = "Não foi possível consultar o Windows";
+        folderList.replaceChildren();
+        const message = document.createElement("div");
+        message.className = "error-state";
+        message.textContent = "Inicie tools\\windows_folder_picker.ps1 em um PowerShell separado e recarregue esta página.";
+        folderList.append(message);
+      }
+    }
+
+    pickButton.addEventListener("click", async () => {
+      pickButton.disabled = true;
+      pickButton.textContent = "Abrindo seletor...";
+      try {
+        const data = await requestJson(`${pickerUrl}/pick`, {
+          method: "POST",
+        });
+        if (data.cancelled) return;
+        selectedWindowsPath = data.path;
+        currentPath.textContent = selectedWindowsPath;
+        folderList.innerHTML = '<div class="empty-state">Pasta selecionada. A configuração ativa só muda depois de aplicar.</div>';
+        applyButton.disabled = false;
+        setMessage("Confirme a reinicialização para aplicar a nova pasta.");
+      } catch (error) {
+        setMessage(error.message, true);
+      } finally {
+        pickButton.disabled = false;
+        pickButton.textContent = "Selecionar pasta...";
+      }
+    });
+
+    applyButton.addEventListener("click", async () => {
+      if (!selectedWindowsPath) return;
+      const confirmed = window.confirm(
+        `Aplicar ${selectedWindowsPath} e recriar o backend e o watcher? A API ficará indisponível por alguns segundos.`,
+      );
+      if (!confirmed) return;
+
+      applyButton.disabled = true;
+      applyButton.textContent = "Aplicando...";
+      setMessage("Atualizando o volume e recriando os serviços...");
+      try {
+        const data = await requestJson(`${pickerUrl}/apply`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: selectedWindowsPath }),
+        });
+        selectedPath.textContent = data.products_dir;
+        currentPath.textContent = data.products_dir;
+        selectedWindowsPath = "";
+        setMessage("Pasta aplicada. Os serviços foram recriados.");
+      } catch (error) {
+        setMessage(error.message, true);
+      } finally {
+        applyButton.disabled = true;
+        applyButton.textContent = "Aplicar e reiniciar";
+      }
+    });
+
+    initialize();
+  </script>
+</body>
+</html>

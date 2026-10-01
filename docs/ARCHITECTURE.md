@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Version:** 0.1
-**Last Updated:** 2026-08-09
+**Last Updated:** 2026-09-30
 
 ---
 
@@ -937,6 +937,31 @@ A health endpoint should exist:
 ```text
 /api/health
 ```
+
+---
+
+# 19. Current Prototype
+
+The initial Compose deployment currently runs three services:
+
+* **Backend:** FastAPI API and filesystem catalog scanner.
+* **Watcher:** monitors the selected product directory and forwards create, delete, and move events to the backend.
+* **PostgreSQL:** stores the product index and event history in the persistent `postgres_data` volume.
+
+The host product directory is mounted at `/data/products` in both application containers. The backend mount is read-only; the watcher mount is writable. On Windows, `PRODUCTS_DIR` in the root `.env` file selects the host directory. The native folder picker at `/settings` uses `tools/windows_folder_picker.ps1` because a browser inside a container cannot enumerate arbitrary Windows paths. The helper listens on loopback, accepts requests only from the local application origins, and recreates the backend and watcher after a directory change.
+
+The current API includes:
+
+```text
+GET  /api/health
+GET  /api/products
+POST /api/products/scan
+GET  /api/products/events
+POST /api/products/watch
+GET  /settings
+```
+
+Product folders remain the source of truth. The backend scans their immediate child directories, records file summaries in PostgreSQL, and reconciles the index at startup, on manual scan, and after watcher events. SQLAlchemy creates tables at startup; schema migrations, API authentication, and production-ready secret management are not implemented yet. The default Compose database credentials are for local development only.
 
 Example response:
 

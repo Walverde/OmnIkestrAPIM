@@ -3,13 +3,19 @@ AI-powered autonomous PIM &amp; e-commerce orchestrator (NAS Watcher, AI Vision,
 
 ## Local development
 
-Start the API, watcher, and PostgreSQL with:
+For a single Windows startup flow, run the launcher from the repository root:
+
+```powershell
+.\start-local.cmd
+```
+
+This command starts the Docker Compose stack and launches the native Windows folder selector automatically. It also opens the settings page in the browser after startup. If you prefer to run the pieces manually, use:
 
 ```powershell
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-On Windows, start the native folder picker in a separate PowerShell window:
+And in a separate PowerShell window:
 
 ```powershell
 powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\tools\windows_folder_picker.ps1

@@ -197,6 +197,26 @@
       font-weight: 700;
     }
 
+    .primary-action {
+      border: 1px solid var(--forest);
+      background: var(--forest);
+      color: #fff;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 10px 20px rgba(30, 91, 70, 0.12);
+    }
+
+    .primary-action:hover:not(:disabled) {
+      background: var(--forest-dark);
+    }
+
+    .primary-action:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+
     .status-pill::before {
       content: "";
       width: 8px;
@@ -421,7 +441,10 @@
         <p class="eyebrow">Visão geral</p>
         <h1>Painel geral</h1>
       </div>
-      <div class="status-pill" id="system-status-pill">Sistema online</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="status-pill" id="system-status-pill">Sistema online</div>
+        <button class="primary-action" id="scan-button" type="button">Analisar pasta</button>
+      </div>
     </header>
 
     <section class="summary-grid" aria-label="Indicadores principais">
@@ -525,6 +548,7 @@
     const rootPathEl = document.querySelector('#root-path');
     const notificationsList = document.querySelector('#notifications-list');
     const updatesList = document.querySelector('#updates-list');
+    const scanButton = document.querySelector('#scan-button');
 
     function formatRelativeTime(value) {
       if (!value) return 'Nunca';
@@ -590,8 +614,17 @@
       `).join('');
     }
 
-    async function loadOverview() {
+    async function loadOverview(forceScan = false) {
       try {
+        if (forceScan) {
+          scanButton.disabled = true;
+          scanButton.textContent = 'Analisando...';
+          const scanResponse = await fetch('/api/products/scan', { method: 'POST' });
+          if (!scanResponse.ok) {
+            throw new Error('Falha ao analisar a pasta.');
+          }
+        }
+
         const [health, productsResponse, eventsResponse] = await Promise.all([
           fetch('/api/health').then((r) => r.json()),
           fetch('/api/products').then((r) => r.json()),
@@ -643,8 +676,15 @@
         rootPathEl.textContent = 'Não disponível';
         renderNotifications([{ title: 'Conectividade', level: 'warning', message: 'Não foi possível carregar os dados em tempo real do sistema.' }]);
         renderUpdates([]);
+      } finally {
+        scanButton.disabled = false;
+        scanButton.textContent = 'Analisar pasta';
       }
     }
+
+    scanButton.addEventListener('click', () => {
+      loadOverview(true);
+    });
 
     loadOverview();
   </script>

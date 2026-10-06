@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $repoRoot
 
+$envFile = Join-Path $repoRoot ".env"
 $composeFile = Join-Path $repoRoot "docker\docker-compose.yml"
 $helperScript = Join-Path $repoRoot "tools\windows_folder_picker.ps1"
 
@@ -85,7 +86,11 @@ try {
 Start-HelperIfNeeded
 
 Write-Host "Subindo a stack do app com Docker Compose..."
-& $dockerCommand.Source compose -f $composeFile up -d --build
+if (Test-Path -LiteralPath $envFile) {
+    & $dockerCommand.Source compose --env-file $envFile -f $composeFile up -d --build
+} else {
+    & $dockerCommand.Source compose -f $composeFile up -d --build
+}
 if ($LASTEXITCODE -ne 0) {
     throw "O comando do Docker Compose falhou. Verifique o ambiente e os arquivos de configuração."
 }

@@ -1,14 +1,16 @@
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Boolean, DateTime, JSON, String, create_engine, func, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+import yaml
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
@@ -83,12 +85,100 @@ class ProductSummary(BaseModel):
     path: str
     files: List[ProductFile]
     has_manifest: bool
+    sku: str | None = None
+    category: str | None = None
+    description: str | None = None
+    images: List[str] = Field(default_factory=list)
+    primary_image: str | None = None
+    manifest: dict[str, Any] | None = None
+    manifest_error: str | None = None
 
 
 
 def get_db():
     with SessionLocal() as session:
         yield session
+
+
+IMAGE_EXTENSIONS = {"bmp", "gif", "heic", "jpeg", "jpg", "png", "tif", "tiff", "webp"}
+SKU_PATTERN = re.compile(r"(?:^|[^a-z0-9])(?:sku|ref|referencia|codigo)[-_ ]*([a-z0-9][a-z0-9._-]*)", re.IGNORECASE)
+
+
+def _manifest_metadata(files: List[ProductFile]) -> tuple[dict[str, Any] | None, str | None]:
+    manifest_file = next(
+        (file for file in files if file.name.lower() in {"product.yaml", "product.yml"}),
+        None,
+    )
+    if manifest_file is None:
+        return None, None
+
+    try:
+        with Path(manifest_file.full_path).open("r", encoding="utf-8") as manifest_stream:
+            metadata = yaml.safe_load(manifest_stream)
+        if metadata is None:
+            return {}, None
+        if not isinstance(metadata, dict):
+            return None, "O manifesto precisa conter um objeto YAML."
+        return metadata, None
+    except (OSError, yaml.YAMLError) as error:
+        return None, str(error)
+
+
+def _metadata_value(metadata: dict[str, Any] | None, *keys: str) -> str | None:
+    if not metadata:
+        return None
+    normalized = {str(key).casefold(): value for key, value in metadata.items()}
+    for key in keys:
+        value = normalized.get(key.casefold())
+        if isinstance(value, (str, int, float)) and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+def _image_priority(file: ProductFile) -> tuple[int, str]:
+    name = file.name.casefold()
+    extension = (file.extension or "").casefold()
+    if any(marker in name for marker in ("cover", "primary", "principal", "capa")):
+        priority = 0
+    elif "removebg-preview" in name:
+        priority = 1
+    elif any(marker in name for marker in ("front", "frente")):
+        priority = 2
+    else:
+        priority = 3
+    extension_priority = {"png": 0, "webp": 1, "jpg": 2, "jpeg": 2, "heic": 3}
+    return priority * 10 + extension_priority.get(extension, 4), file.relative_path.casefold()
+
+
+def _analyze_product(name: str, path: str, files: List[ProductFile]) -> ProductSummary:
+    manifest, manifest_error = _manifest_metadata(files)
+    images = sorted(
+        (file for file in files if file.extension and file.extension.casefold() in IMAGE_EXTENSIONS),
+        key=_image_priority,
+    )
+    sku = _metadata_value(manifest, "sku", "ref", "referencia", "codigo", "código")
+    if sku is None:
+        candidates = [(name, False), *((file.name, True) for file in files)]
+        for candidate, is_filename in candidates:
+            searchable_name = Path(candidate).stem if is_filename else candidate
+            match = SKU_PATTERN.search(searchable_name)
+            if match:
+                sku = match.group(1).rstrip("._-")
+                break
+
+    return ProductSummary(
+        name=_metadata_value(manifest, "name", "nome", "title", "titulo", "título") or name,
+        path=path,
+        files=files,
+        has_manifest=manifest is not None or manifest_error is not None,
+        sku=sku,
+        category=_metadata_value(manifest, "category", "categoria"),
+        description=_metadata_value(manifest, "description", "descricao", "descrição"),
+        images=[file.relative_path for file in images],
+        primary_image=images[0].relative_path if images else None,
+        manifest=manifest,
+        manifest_error=manifest_error,
+    )
 
 
 def _scan_products(root: Path) -> List[ProductSummary]:
@@ -102,17 +192,12 @@ def _scan_products(root: Path) -> List[ProductSummary]:
             continue
 
         files: List[ProductFile] = []
-        has_manifest = False
-
         for file in sorted(child.rglob("*"), key=lambda p: str(p).lower()):
             if file.is_dir():
                 continue
 
             relative_path = file.relative_to(root)
             extension = file.suffix.lower().lstrip(".") or None
-
-            if file.name.lower() in {"product.yaml", "product.yml"}:
-                has_manifest = True
 
             files.append(
                 ProductFile(
@@ -123,14 +208,7 @@ def _scan_products(root: Path) -> List[ProductSummary]:
                 )
             )
 
-        products.append(
-            ProductSummary(
-                name=child.name,
-                path=str(child),
-                files=files,
-                has_manifest=has_manifest,
-            )
-        )
+        products.append(_analyze_product(child.name, str(child), files))
 
     return products
 
@@ -163,12 +241,8 @@ def _sync_product_catalog(db: Session, root: Path) -> List[ProductSummary]:
 
 
 def _serialize_product(record: ProductRecord) -> dict[str, object]:
-    return {
-        "name": record.name,
-        "path": record.path,
-        "files": record.files,
-        "has_manifest": record.has_manifest,
-    }
+    files = [ProductFile.model_validate(file) for file in record.files]
+    return _analyze_product(record.name, record.path, files).model_dump()
 
 
 @app.get("/api/health")

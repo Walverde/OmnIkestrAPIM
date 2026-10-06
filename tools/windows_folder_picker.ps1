@@ -9,9 +9,17 @@ Add-Type -AssemblyName System.Windows.Forms
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $envFile = Join-Path $repoRoot ".env"
 $composeFile = Join-Path $repoRoot "docker\docker-compose.yml"
+$logFile = Join-Path $repoRoot "tools\windows_folder_picker.log"
 $allowedOrigins = @("http://localhost:8000", "http://127.0.0.1:8000")
 $listener = [System.Net.HttpListener]::new()
 $listener.Prefixes.Add("http://127.0.0.1:8765/")
+
+function Write-Log {
+    param([string]$Message)
+    $timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $line = "[$timestamp] $Message"
+    Add-Content -LiteralPath $logFile -Value $line -Encoding UTF8
+}
 
 function Get-ConfiguredProductsPath {
     if (Test-Path -LiteralPath $envFile) {
@@ -47,6 +55,7 @@ function Write-JsonResponse($context, [int]$statusCode, $body, [string]$origin) 
 }
 
 try {
+    Write-Log "Helper iniciado. Escutando em http://127.0.0.1:8765/"
     $listener.Start()
     Write-Host "Seletor de pastas ativo em http://127.0.0.1:8765"
     Write-Host "Mantenha esta janela aberta enquanto usa /settings."
@@ -54,6 +63,7 @@ try {
     while ($listener.IsListening) {
         $context = $listener.GetContext()
         $origin = $context.Request.Headers["Origin"]
+        Write-Log "Http request recebida: $($context.Request.HttpMethod) $($context.Request.Url.AbsolutePath) Origin=$origin"
 
         if ($origin -notin $allowedOrigins) {
             Write-JsonResponse $context 403 @{ detail = "Origem não autorizada." } "null"
@@ -82,24 +92,54 @@ try {
             }
 
             if ($context.Request.HttpMethod -eq "POST" -and $route -eq "/pick") {
-                $dialog = [System.Windows.Forms.FolderBrowserDialog]::new()
-                $dialog.Description = "Selecione a pasta que contém seus anúncios"
-                $dialog.ShowNewFolderButton = $true
-                $initialPath = Get-ConfiguredProductsPath
-                if (Test-Path -LiteralPath $initialPath -PathType Container) {
-                    $dialog.SelectedPath = $initialPath
-                }
+                $dialog = $null
+                $owner = $null
+                try {
+                    Write-Log "Abrindo FolderBrowserDialog..."
+                    $owner = [System.Windows.Forms.Form]::new()
+                    $owner.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+                    $owner.Opacity = 0.01
+                    $owner.TopMost = $true
+                    $owner.ShowInTaskbar = $false
+                    $owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+                    $owner.Location = [System.Drawing.Point]::new(-2000, -2000)
+                    $owner.Size = [System.Drawing.Size]::new(1, 1)
+                    $owner.Show()
+                    $owner.Activate()
 
-                $dialogResult = $dialog.ShowDialog()
-                if ($dialogResult -ne [System.Windows.Forms.DialogResult]::OK) {
-                    Write-JsonResponse $context 200 @{ cancelled = $true } $origin
-                } else {
-                    Write-JsonResponse $context 200 @{
-                        cancelled = $false
-                        path = [System.IO.Path]::GetFullPath($dialog.SelectedPath)
-                    } $origin
+                    $dialog = [System.Windows.Forms.FolderBrowserDialog]::new()
+                    $dialog.Description = "Selecione a pasta que contém seus anúncios"
+                    $dialog.ShowNewFolderButton = $true
+                    $dialog.RootFolder = [System.Environment+SpecialFolder]::MyComputer
+                    $initialPath = Get-ConfiguredProductsPath
+                    if (Test-Path -LiteralPath $initialPath -PathType Container) {
+                        $dialog.SelectedPath = $initialPath
+                    }
+
+                    $dialogResult = $dialog.ShowDialog($owner)
+                    if ($dialogResult -ne [System.Windows.Forms.DialogResult]::OK) {
+                        Write-Log "FolderBrowserDialog cancelado pelo usuário."
+                        Write-JsonResponse $context 200 @{ cancelled = $true } $origin
+                    } else {
+                        $selectedPath = [System.IO.Path]::GetFullPath($dialog.SelectedPath)
+                        Write-Log "Pasta selecionada: $selectedPath"
+                        Write-JsonResponse $context 200 @{
+                            cancelled = $false
+                            path = $selectedPath
+                        } $origin
+                    }
+                } catch {
+                    Write-Log "Erro ao abrir FolderBrowserDialog: $($_.Exception.Message)"
+                    Write-JsonResponse $context 500 @{ detail = $_.Exception.Message } $origin
+                } finally {
+                    if ($null -ne $owner -and -not $owner.IsDisposed) {
+                        $owner.Close()
+                        $owner.Dispose()
+                    }
+                    if ($null -ne $dialog -and -not $dialog.IsDisposed) {
+                        $dialog.Dispose()
+                    }
                 }
-                $dialog.Dispose()
                 continue
             }
 

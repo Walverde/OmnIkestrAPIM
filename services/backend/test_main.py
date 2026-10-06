@@ -25,6 +25,40 @@ def test_scan_products_detects_manifest_and_files(tmp_path):
     assert any(file.name == "cover.jpg" for file in products[0].files)
 
 
+def test_scan_products_extracts_catalog_metadata_and_primary_image(tmp_path):
+    product_dir = tmp_path / "Banco RC modelismo"
+    product_dir.mkdir()
+    (product_dir / "product.yaml").write_text(
+        "name: Banco RC\nsku: BRC-42\ncategory: Modelismo\ndescription: Banco ajustável\n",
+        encoding="utf-8",
+    )
+    (product_dir / "IMG_0448.HEIC").write_bytes(b"source")
+    (product_dir / "IMG_0448-removebg-preview.png").write_bytes(b"preview")
+
+    product = _scan_products(tmp_path)[0]
+
+    assert product.name == "Banco RC"
+    assert product.sku == "BRC-42"
+    assert product.category == "Modelismo"
+    assert product.description == "Banco ajustável"
+    assert product.primary_image == "Banco RC modelismo/IMG_0448-removebg-preview.png"
+    assert product.images[0] == product.primary_image
+    assert product.manifest["sku"] == "BRC-42"
+
+
+def test_scan_products_extracts_sku_from_filename_without_manifest(tmp_path):
+    product_dir = tmp_path / "Suporte drone"
+    product_dir.mkdir()
+    (product_dir / "SKU-DRN_204.jpg").write_bytes(b"image")
+
+    product = _scan_products(tmp_path)[0]
+
+    assert product.has_manifest is False
+    assert product.sku == "DRN_204"
+    assert product.category is None
+    assert product.primary_image == "Suporte drone/SKU-DRN_204.jpg"
+
+
 def test_sync_product_catalog_persists_and_removes_products(tmp_path):
     database = create_engine(f"sqlite:///{tmp_path / 'catalog.db'}")
     Base.metadata.create_all(database)

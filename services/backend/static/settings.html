@@ -316,9 +316,25 @@
       status.dataset.error = String(isError);
     }
 
+    async function ensureHelperReady() {
+      try {
+        await requestJson(`${pickerUrl}/status`);
+        return true;
+      } catch (error) {
+        helperStatus.textContent = "Auxiliar indisponível";
+        setMessage("O seletor do Windows não respondeu. Reinicie o helper ou abra o projeto novamente.", true);
+        return false;
+      }
+    }
+
     async function openFolderPicker(autoTrigger = false) {
+      const isReady = await ensureHelperReady();
+      if (!isReady) {
+        return;
+      }
+
       pickButton.disabled = true;
-      pickButton.textContent = autoTrigger ? "Abrindo seletor..." : "Abrindo seletor...";
+      pickButton.textContent = "Abrindo seletor...";
 
       try {
         const data = await requestJson(`${pickerUrl}/pick`, {

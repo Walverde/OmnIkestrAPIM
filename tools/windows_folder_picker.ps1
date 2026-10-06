@@ -10,6 +10,10 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $envFile = Join-Path $repoRoot ".env"
 $composeFile = Join-Path $repoRoot "docker\docker-compose.yml"
 $logFile = Join-Path $repoRoot "tools\windows_folder_picker.log"
+$pickerToken = $env:PICKER_TOKEN
+if ([string]::IsNullOrWhiteSpace($pickerToken)) {
+    throw "PICKER_TOKEN não definido. Inicie o seletor por start-local.cmd."
+}
 $allowedOrigins = @("http://localhost:8000", "http://127.0.0.1:8000")
 $listener = [System.Net.HttpListener]::new()
 $listener.Prefixes.Add("http://127.0.0.1:8765/")
@@ -43,7 +47,7 @@ function Write-JsonResponse($context, [int]$statusCode, $body, [string]$origin) 
     $response.ContentType = "application/json; charset=utf-8"
     $response.Headers.Add("Access-Control-Allow-Origin", $origin)
     $response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    $response.Headers.Add("Access-Control-Allow-Headers", "Content-Type")
+    $response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, X-Picker-Token")
     $response.Headers.Add("Access-Control-Allow-Private-Network", "true")
     $response.Headers.Add("Vary", "Origin")
 
@@ -74,10 +78,15 @@ try {
             $context.Response.StatusCode = 204
             $context.Response.Headers.Add("Access-Control-Allow-Origin", $origin)
             $context.Response.Headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            $context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type")
+            $context.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type, X-Picker-Token")
             $context.Response.Headers.Add("Access-Control-Allow-Private-Network", "true")
             $context.Response.Headers.Add("Vary", "Origin")
             $context.Response.Close()
+            continue
+        }
+
+        if ($context.Request.Headers["X-Picker-Token"] -cne $pickerToken) {
+            Write-JsonResponse $context 401 @{ detail = "Token do seletor inválido." } $origin
             continue
         }
 
@@ -87,6 +96,7 @@ try {
                 Write-JsonResponse $context 200 @{
                     status = "ready"
                     products_dir = (Get-ConfiguredProductsPath)
+                    token_required = $true
                 } $origin
                 continue
             }
@@ -176,7 +186,7 @@ try {
                 $env:PRODUCTS_DIR = $composePath
                 Push-Location $repoRoot
                 try {
-                    $output = & $dockerPath compose -f $composeFile up -d backend watcher 2>&1 | Out-String
+                    $output = & $dockerPath compose --env-file $envFile -f $composeFile up -d backend watcher 2>&1 | Out-String
                     $exitCode = $LASTEXITCODE
                 } finally {
                     Pop-Location

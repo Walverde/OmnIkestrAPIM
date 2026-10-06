@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Produtos | OmnIkestrAPIM</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1d3029;
+      --muted: #63766d;
+      --line: #d8e0da;
+      --paper: #f3f5f1;
+      --surface: #fff;
+      --forest: #1e5b46;
+      --forest-dark: #173f34;
+      --lime: #c5dc87;
+      --copper: #bd644a;
+      --danger: #a34432;
+      font-family: "Aptos", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; color: var(--ink); background: var(--paper); background-image: linear-gradient(rgba(29,48,41,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(29,48,41,.025) 1px, transparent 1px); background-size: 24px 24px; }
+    button, input, select { font: inherit; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #ae542f; outline-offset: 2px; }
+    a { color: inherit; text-decoration: none; }
+    .topbar { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 0 5vw; color: #f5f7f3; background: var(--forest-dark); border-bottom: 4px solid var(--lime); }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; }
+    .brand-mark { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px 2px; color: var(--forest-dark); background: var(--lime); font: 700 18px Georgia,serif; }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; }
+    .nav-link { padding: 9px 12px; color: #dfe8e3; border-radius: 999px; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+    .nav-link.active, .nav-link:hover { color: #fff; background: rgba(255,255,255,.08); }
+    main { width: min(1240px, calc(100% - 40px)); margin: 42px auto 72px; }
+    .heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
+    .eyebrow { margin: 0 0 8px; color: var(--copper); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    h1 { margin: 0; font: 500 42px/1.08 Georgia,"Times New Roman",serif; }
+    .count { color: var(--muted); font-size: 14px; }
+    .filters { display: grid; grid-template-columns: minmax(220px,1.5fr) repeat(4,minmax(145px,.8fr)) auto; gap: 10px; align-items: end; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .field { display: grid; gap: 6px; min-width: 0; }
+    .field label { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .field input, .field select { width: 100%; height: 42px; padding: 0 11px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 4px; }
+    .reset { height: 42px; padding: 0 14px; color: var(--forest); background: transparent; border: 1px solid var(--forest); border-radius: 4px; font-weight: 700; cursor: pointer; }
+    .table-wrap { margin-top: 18px; overflow-x: auto; background: rgba(255,255,255,.9); border: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; text-align: left; }
+    th { padding: 11px 14px; color: var(--muted); background: #f7f9f6; border-bottom: 1px solid var(--line); font-size: 11px; text-transform: uppercase; }
+    td { padding: 12px 14px; border-bottom: 1px solid #e9eee9; font-size: 13px; vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: #f8faf6; }
+    .product-cell { display: flex; align-items: center; gap: 12px; min-width: 250px; }
+    .preview { width: 54px; height: 54px; flex: 0 0 54px; object-fit: cover; background: #e8eee8; border: 1px solid var(--line); }
+    .preview-empty { display: grid; place-items: center; color: var(--muted); font-size: 10px; }
+    .product-title { display: block; font-weight: 750; }
+    .product-sub { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+    .status { display: inline-flex; align-items: center; padding: 5px 8px; border-radius: 999px; background: #eef3ed; color: var(--forest); font-size: 11px; font-weight: 750; white-space: nowrap; }
+    .status[data-status="published"] { color: #285f38; background: #e5f1e7; }
+    .status[data-status="sold"] { color: #88523c; background: #f7eee5; }
+    .status[data-status="archived"] { color: #5d6762; background: #e9ece9; }
+    .empty, .error { padding: 42px 18px; color: var(--muted); text-align: center; }
+    .error { color: var(--danger); }
+    .pagination { display: flex; justify-content: flex-end; align-items: center; gap: 14px; padding: 14px 0; color: var(--muted); font-size: 13px; }
+    .page-button { width: 36px; height: 36px; display: grid; place-items: center; color: var(--forest); background: #fff; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+    .page-button:disabled { color: #aab4ad; cursor: not-allowed; }
+    @media (max-width: 900px) { .filters { grid-template-columns: repeat(2,minmax(0,1fr)); } .filters .search-field { grid-column: 1/-1; } }
+    @media (max-width: 620px) { .topbar { padding: 0 16px; gap: 8px; } .nav-link { padding: 8px; font-size: 10px; } main { width: calc(100% - 24px); margin: 28px auto 48px; } .heading { align-items: start; flex-direction: column; } h1 { font-size: 36px; } .filters { grid-template-columns: 1fr 1fr; } .filters .search-field { grid-column: 1/-1; } th:nth-child(3),td:nth-child(3),th:nth-child(4),td:nth-child(4) { display: none; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="OmnIkestrAPIM, início"><span class="brand-mark" aria-hidden="true">O</span><span>OmnIkestrAPIM</span></a>
+    <nav aria-label="Navegação principal"><a class="nav-link" href="/">Painel</a><a class="nav-link" href="/settings">Configurações</a><a class="nav-link active" href="/products">Produtos</a></nav>
+  </header>
+  <main>
+    <header class="heading"><div><p class="eyebrow">Catálogo local</p><h1>Produtos</h1></div><div class="count" id="result-count" aria-live="polite">Carregando...</div></header>
+    <form class="filters" id="filters">
+      <div class="field search-field"><label for="search">Buscar</label><input id="search" name="q" type="search" placeholder="Título, SKU ou descrição" autocomplete="off"></div>
+      <div class="field"><label for="folder-group">Grupo de pastas</label><select id="folder-group"><option value="">Todos</option></select></div>
+      <div class="field"><label for="category">Categoria</label><select id="category"><option value="">Todas</option></select></div>
+      <div class="field"><label for="status">Estado</label><select id="status"><option value="">Todos</option><option value="pending">Pendente</option><option value="published">Publicado</option><option value="sold">Vendido</option><option value="archived">Arquivado</option></select></div>
+      <div class="field"><label for="condition">Condição</label><select id="condition"><option value="">Todas</option><option value="new">Novo</option><option value="used">Usado</option><option value="refurbished">Recondicionado</option></select></div>
+      <button class="reset" id="reset" type="button">Limpar</button>
+    </form>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Produto</th><th>Grupo</th><th>SKU</th><th>Categoria</th><th>Condição</th><th>Preço</th><th>Estado</th></tr></thead>
+        <tbody id="products"><tr><td colspan="7" class="empty">Carregando catálogo...</td></tr></tbody>
+      </table>
+    </div>
+    <footer class="pagination"><button class="page-button" id="previous" type="button" aria-label="Página anterior" title="Página anterior">‹</button><span id="page-label">Página 1</span><button class="page-button" id="next" type="button" aria-label="Próxima página" title="Próxima página">›</button></footer>
+  </main>
+  <script>
+    const pageSize = 12;
+    const tableBody = document.querySelector('#products');
+    const countLabel = document.querySelector('#result-count');
+    const pageLabel = document.querySelector('#page-label');
+    const categorySelect = document.querySelector('#category');
+    const folderGroupSelect = document.querySelector('#folder-group');
+    const searchInput = document.querySelector('#search');
+    const statusSelect = document.querySelector('#status');
+    const conditionSelect = document.querySelector('#condition');
+    let page = 0;
+    let total = 0;
+    const categories = new Set();
+    const folderGroups = new Set();
+    let searchTimer;
+
+    const statusLabels = { pending: 'Pendente', published: 'Publicado', sold: 'Vendido', archived: 'Arquivado' };
+    const conditionLabels = { new: 'Novo', used: 'Usado', refurbished: 'Recondicionado' };
+
+    function mediaUrl(product, relativePath) {
+      const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
+      return `/api/products/${encodeURIComponent(product.id)}/media/${encodedPath}?thumbnail=true`;
+    }
+
+    function updateOptions(select, options, selectedValue, defaultLabel) {
+      select.replaceChildren(new Option(defaultLabel, ''));
+      for (const option of [...options].sort((a, b) => a.localeCompare(b, 'pt-BR'))) select.add(new Option(option, option));
+      select.value = selectedValue;
+    }
+
+    function updateCatalogOptions(categoryValues, folderGroupValues) {
+      for (const category of categoryValues) if (category) categories.add(category);
+      for (const folderGroup of folderGroupValues) if (folderGroup) folderGroups.add(folderGroup);
+      updateOptions(categorySelect, categories, categorySelect.value, 'Todas');
+      updateOptions(folderGroupSelect, folderGroups, folderGroupSelect.value, 'Todos');
+    }
+
+    function renderProducts(products) {
+      tableBody.replaceChildren();
+      if (!products.length) {
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 7;
+        cell.className = 'empty';
+        cell.textContent = 'Nenhum produto corresponde aos filtros.';
+        row.append(cell);
+        tableBody.append(row);
+        return;
+      }
+
+      for (const product of products) {
+        const row = document.createElement('tr');
+        const productCell = document.createElement('td');
+        const productLink = document.createElement('a');
+        productLink.className = 'product-cell';
+        productLink.href = `/products/${encodeURIComponent(product.id)}`;
+        if (product.primary_image) {
+          const image = document.createElement('img');
+          image.className = 'preview';
+          image.loading = 'lazy';
+          image.alt = '';
+          image.src = mediaUrl(product, product.primary_image);
+          productLink.append(image);
+        } else {
+          const emptyPreview = document.createElement('span');
+          emptyPreview.className = 'preview preview-empty';
+          emptyPreview.textContent = 'Sem foto';
+          productLink.append(emptyPreview);
+        }
+        const text = document.createElement('span');
+        const title = document.createElement('span');
+        title.className = 'product-title';
+        title.textContent = product.title || product.name;
+        const sub = document.createElement('span');
+        sub.className = 'product-sub';
+        sub.textContent = `${product.images?.length || 0} imagens · ${product.files?.length || 0} arquivos`;
+        text.append(title, sub);
+        productLink.append(text);
+        productCell.append(productLink);
+
+        const folderGroup = document.createElement('td'); folderGroup.textContent = product.folder_group || '—';
+        const sku = document.createElement('td'); sku.textContent = product.sku || '—';
+        const category = document.createElement('td'); category.textContent = product.category || '—';
+        const condition = document.createElement('td'); condition.textContent = conditionLabels[product.condition] || '—';
+        const price = document.createElement('td'); price.textContent = product.price == null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(product.price));
+        const stateCell = document.createElement('td');
+        const state = document.createElement('span'); state.className = 'status'; state.dataset.status = product.status || 'pending'; state.textContent = statusLabels[product.status] || 'Pendente'; stateCell.append(state);
+        row.append(productCell, folderGroup, sku, category, condition, price, stateCell);
+        tableBody.append(row);
+      }
+    }
+
+    async function loadCatalog() {
+      const query = new URLSearchParams({ limit: String(pageSize), offset: String(page * pageSize) });
+      if (searchInput.value.trim()) query.set('q', searchInput.value.trim());
+      if (folderGroupSelect.value) query.set('folder_group', folderGroupSelect.value);
+      if (categorySelect.value) query.set('category', categorySelect.value);
+      if (statusSelect.value) query.set('status', statusSelect.value);
+      if (conditionSelect.value) query.set('condition', conditionSelect.value);
+      tableBody.innerHTML = '<tr><td colspan="7" class="empty">Carregando catálogo...</td></tr>';
+      try {
+        const response = await fetch(`/api/products?${query}`);
+        if (!response.ok) throw new Error('Falha ao carregar catálogo.');
+        const data = await response.json();
+        total = data.total || 0;
+        updateCatalogOptions(data.categories || (data.products || []).map(product => product.category), data.folder_groups || []);
+        renderProducts(data.products || []);
+        countLabel.textContent = `${total} ${total === 1 ? 'produto' : 'produtos'}`;
+        pageLabel.textContent = total ? `Página ${page + 1} de ${Math.ceil(total / pageSize)}` : 'Página 1';
+        document.querySelector('#previous').disabled = page === 0;
+        document.querySelector('#next').disabled = (page + 1) * pageSize >= total;
+      } catch (error) {
+        tableBody.innerHTML = `<tr><td colspan="7" class="error">${error.message}</td></tr>`;
+        countLabel.textContent = 'Catálogo indisponível';
+      }
+    }
+
+    document.querySelector('#filters').addEventListener('submit', (event) => event.preventDefault());
+    searchInput.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { page = 0; loadCatalog(); }, 250); });
+    for (const select of [folderGroupSelect, categorySelect, statusSelect, conditionSelect]) select.addEventListener('change', () => { page = 0; loadCatalog(); });
+    document.querySelector('#previous').addEventListener('click', () => { if (page > 0) { page -= 1; loadCatalog(); } });
+    document.querySelector('#next').addEventListener('click', () => { if ((page + 1) * pageSize < total) { page += 1; loadCatalog(); } });
+    document.querySelector('#reset').addEventListener('click', () => { searchInput.value = ''; folderGroupSelect.value = ''; categorySelect.value = ''; statusSelect.value = ''; conditionSelect.value = ''; page = 0; loadCatalog(); });
+    loadCatalog();
+  </script>
+</body>
+</html>

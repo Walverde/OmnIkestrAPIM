@@ -29,12 +29,12 @@ services:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-omnikestr}:${POSTGRES_PASSWORD:-omnikestr_dev}@db:5432/${POSTGRES_DB:-omnikestr}
       - PRODUCTS_ROOT=/data/products
+      - PICKER_TOKEN=${PICKER_TOKEN:-}
     volumes:
       - ../services/backend:/app
       - type: bind
         source: "${PRODUCTS_DIR:-../Products}"
         target: /data/products
-        read_only: true
     depends_on:
       db:
         condition: service_healthy

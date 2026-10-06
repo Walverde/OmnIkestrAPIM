@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Produto | OmnIkestrAPIM</title>
+  <style>
+    :root { color-scheme: light; --ink:#1d3029; --muted:#63766d; --line:#d8e0da; --paper:#f3f5f1; --surface:#fff; --forest:#1e5b46; --forest-dark:#173f34; --lime:#c5dc87; --copper:#bd644a; --danger:#a34432; font-family:"Aptos","Segoe UI",sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-width:320px; color:var(--ink); background:var(--paper); background-image:linear-gradient(rgba(29,48,41,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(29,48,41,.025) 1px,transparent 1px); background-size:24px 24px; }
+    button,input,select,textarea { font:inherit; }
+    button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:3px solid #ae542f; outline-offset:2px; }
+    a { color:inherit; text-decoration:none; }
+    .topbar { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:0 5vw; color:#f5f7f3; background:var(--forest-dark); border-bottom:4px solid var(--lime); }
+    .brand { display:flex; align-items:center; gap:12px; font-weight:700; }
+    .brand-mark { width:28px; height:28px; display:grid; place-items:center; border-radius:7px 2px; color:var(--forest-dark); background:var(--lime); font:700 18px Georgia,serif; }
+    nav { display:flex; gap:8px; flex-wrap:wrap; }
+    .nav-link { padding:9px 12px; color:#dfe8e3; border-radius:999px; font-size:12px; font-weight:700; text-transform:uppercase; }
+    .nav-link.active,.nav-link:hover { color:white; background:rgba(255,255,255,.08); }
+    main { width:min(1240px,calc(100% - 40px)); margin:34px auto 72px; }
+    .back { display:inline-flex; align-items:center; gap:8px; margin-bottom:19px; color:var(--forest); font-size:13px; font-weight:750; }
+    .heading { display:flex; align-items:end; justify-content:space-between; gap:20px; padding-bottom:18px; border-bottom:1px solid var(--line); }
+    .eyebrow { margin:0 0 7px; color:var(--copper); font-size:11px; font-weight:800; text-transform:uppercase; }
+    h1 { margin:0; overflow-wrap:anywhere; font:500 40px/1.1 Georgia,"Times New Roman",serif; }
+    .product-id { margin-top:8px; color:var(--muted); font:12px Consolas,monospace; overflow-wrap:anywhere; }
+    .folder-group { margin-top:6px; color:var(--muted); font-size:12px; }
+    .status { padding:7px 10px; color:var(--forest); background:#eaf1e9; border-radius:999px; font-size:12px; font-weight:750; white-space:nowrap; }
+    .layout { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(360px,.9fr); gap:32px; align-items:start; margin-top:24px; }
+    .section-title { margin:0 0 14px; font-size:16px; font-weight:800; }
+    .gallery { min-width:0; }
+    .hero-image { width:100%; aspect-ratio:4/3; display:grid; place-items:center; overflow:hidden; background:#e8ede8; border:1px solid var(--line); }
+    .hero-image img { width:100%; height:100%; object-fit:contain; }
+    .hero-empty { color:var(--muted); font-size:14px; }
+    .thumbnails { display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr)); gap:8px; margin-top:10px; }
+    .thumb { aspect-ratio:1; padding:0; overflow:hidden; background:#e8ede8; border:1px solid var(--line); cursor:pointer; }
+    .thumb[aria-current="true"] { border:2px solid var(--forest); }
+    .thumb img { width:100%; height:100%; object-fit:cover; }
+    .files { margin-top:30px; }
+    .file-list { display:grid; border-top:1px solid var(--line); }
+    .file-row { display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:42px; border-bottom:1px solid var(--line); font-size:12px; }
+    .file-name { min-width:0; overflow-wrap:anywhere; }
+    .file-type { flex:0 0 auto; color:var(--muted); font-size:10px; text-transform:uppercase; }
+    .editor { min-width:0; padding:20px; background:rgba(255,255,255,.9); border:1px solid var(--line); }
+    .validation-summary { display:none; margin-bottom:16px; padding:11px 13px; color:#7e3025; background:#fbefeb; border-left:3px solid var(--danger); font-size:13px; line-height:1.5; }
+    .validation-summary.visible { display:block; }
+    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:13px 14px; }
+    .field { min-width:0; display:grid; gap:6px; }
+    .field.full { grid-column:1/-1; }
+    .field label { color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }
+    .field input,.field select,.field textarea { width:100%; min-height:41px; padding:9px 10px; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:3px; }
+    .field textarea { min-height:112px; resize:vertical; line-height:1.5; }
+    .field-error { min-height:0; color:var(--danger); font-size:11px; }
+    .field-error:not(:empty) { min-height:15px; }
+    .form-actions { display:flex; justify-content:flex-end; gap:9px; margin-top:18px; padding-top:15px; border-top:1px solid var(--line); }
+    .button { min-height:40px; padding:0 14px; border:1px solid var(--line); border-radius:3px; font-size:13px; font-weight:750; cursor:pointer; }
+    .button.secondary { color:var(--ink); background:white; }
+    .button.primary { color:white; background:var(--forest); border-color:var(--forest); }
+    .button:disabled { opacity:.6; cursor:wait; }
+    .save-state { min-height:20px; margin:12px 0 0; color:var(--forest); font-size:12px; }
+    .save-state.error { color:var(--danger); }
+    .manifest-warning,.loading,.page-error { margin:16px 0; padding:12px 14px; color:#7e3025; background:#fbefeb; border-left:3px solid var(--danger); font-size:13px; line-height:1.5; }
+    .structure-warning { margin:14px 0; padding:10px 12px; color:#725a24; background:#f8f3e5; border-left:3px solid #bd9c42; font-size:12px; line-height:1.5; }
+    .category-suggestion { display:flex; align-items:center; gap:8px; flex-wrap:wrap; color:var(--muted); font-size:11px; }
+    .category-confirm { min-height:30px; padding:0 9px; color:var(--forest); background:white; border:1px solid var(--forest); border-radius:3px; font-size:11px; font-weight:750; cursor:pointer; }
+    .category-confirm:disabled { opacity:.55; cursor:wait; }
+    .loading { color:var(--muted); background:#fff; border-color:var(--line); }
+    @media(max-width:850px) { .layout { grid-template-columns:1fr; } .gallery { order:0; } .editor { order:1; } }
+    @media(max-width:560px) { .topbar { padding:0 14px; gap:8px; } .nav-link { padding:8px; font-size:10px; } main { width:calc(100% - 24px); margin-top:24px; } h1 { font-size:34px; } .heading { align-items:start; flex-direction:column; } .layout { gap:24px; } .editor { padding:15px; } .form-grid { grid-template-columns:1fr; } .field.full { grid-column:auto; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="OmnIkestrAPIM, início"><span class="brand-mark" aria-hidden="true">O</span><span>OmnIkestrAPIM</span></a>
+    <nav aria-label="Navegação principal"><a class="nav-link" href="/">Painel</a><a class="nav-link" href="/settings">Configurações</a><a class="nav-link active" href="/products">Produtos</a></nav>
+  </header>
+  <main id="main" aria-live="polite"><div class="loading">Carregando produto...</div></main>
+  <script>
+    const main = document.querySelector('#main');
+    const productId = decodeURIComponent(location.pathname.split('/').filter(Boolean).at(-1) || '');
+    const statusLabels = { pending:'Pendente', published:'Publicado', sold:'Vendido', archived:'Arquivado' };
+    const conditionLabels = { new:'Novo', used:'Usado', refurbished:'Recondicionado' };
+    let product;
+    let activeImage = '';
+
+    function mediaUrl(relativePath) {
+      const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
+      return `/api/products/${encodeURIComponent(productId)}/media/${encodedPath}?thumbnail=true`;
+    }
+
+    function element(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    }
+
+    function render(data) {
+      product = data;
+      document.title = `${product.title || product.name} | OmnIkestrAPIM`;
+      main.replaceChildren();
+      const back = element('a', 'back', '← Voltar aos produtos'); back.href = '/products';
+      const heading = element('header', 'heading');
+      const titleBlock = element('div');
+      titleBlock.append(element('p', 'eyebrow', 'Produto'), element('h1', '', product.title || product.name), element('div', 'product-id', `ID ${product.id}`), element('div', 'folder-group', product.folder_group ? `Grupo de pastas: ${product.folder_group}` : 'Pasta na raiz'));
+      const status = element('span', 'status', statusLabels[product.status] || 'Pendente');
+      heading.append(titleBlock, status);
+      main.append(back, heading);
+      if (product.manifest_error) main.append(element('div', 'manifest-warning', `Manifesto inválido: ${product.manifest_error}`));
+      if (product.ambiguous_structure) main.append(element('div', 'structure-warning', 'Esta pasta contém mídia diretamente e também subpastas. A estrutura foi mantida sem mover arquivos; confira se as subpastas pertencem a este produto.'));
+
+      const layout = element('div', 'layout');
+      const gallery = element('section', 'gallery'); gallery.append(element('h2', 'section-title', 'Imagens'));
+      const hero = element('div', 'hero-image');
+      const thumbnails = [...(product.images || [])];
+      activeImage = thumbnails.includes(activeImage) ? activeImage : (product.primary_image || thumbnails[0] || '');
+      if (activeImage) {
+        const heroImage = element('img'); heroImage.src = mediaUrl(activeImage); heroImage.alt = product.title || product.name; hero.append(heroImage);
+      } else hero.append(element('div', 'hero-empty', 'Nenhuma imagem encontrada'));
+      gallery.append(hero);
+      const thumbGrid = element('div', 'thumbnails');
+      for (const imagePath of thumbnails) {
+        const button = element('button', 'thumb'); button.type = 'button'; button.setAttribute('aria-label', `Exibir ${imagePath.split('/').at(-1)}`); button.setAttribute('aria-current', String(imagePath === activeImage));
+        const image = element('img'); image.src = mediaUrl(imagePath); image.alt = ''; button.append(image);
+        button.addEventListener('click', () => {
+          activeImage = imagePath;
+          const heroImage = gallery.querySelector('.hero-image img');
+          if (heroImage) heroImage.src = mediaUrl(activeImage);
+          for (const thumbnail of thumbGrid.children) thumbnail.setAttribute('aria-current', String(thumbnail === button));
+        });
+        thumbGrid.append(button);
+      }
+      gallery.append(thumbGrid);
+
+      const fileSection = element('section', 'files'); fileSection.append(element('h2', 'section-title', `Arquivos (${product.files?.length || 0})`));
+      const fileList = element('div', 'file-list');
+      for (const file of product.files || []) {
+        const row = element('div', 'file-row'); row.append(element('span', 'file-name', file.relative_path), element('span', 'file-type', file.extension || 'arquivo')); fileList.append(row);
+      }
+      fileSection.append(fileList); gallery.append(fileSection);
+
+      const editor = element('section', 'editor'); editor.append(element('h2', 'section-title', 'Dados do produto'));
+      if (product.category_mismatch) {
+        editor.append(element('div', 'structure-warning', `A categoria no manifesto (${product.category}) difere do grupo de pastas (${product.category_suggestion}). O valor do YAML prevalece; nenhuma pasta foi movida.`));
+      }
+      const summary = element('div', 'validation-summary'); summary.id = 'validation-summary'; summary.setAttribute('role', 'alert');
+      const form = element('form'); form.id = 'product-form';
+      const grid = element('div', 'form-grid');
+      const addField = (name, label, value, type = 'text', options = null, full = false) => {
+        const wrapper = element('div', `field${full ? ' full' : ''}`);
+        const inputId = `field-${name}`;
+        const labelNode = element('label', '', label); labelNode.htmlFor = inputId;
+        let control;
+        if (options) {
+          control = element('select');
+          for (const [optionValue, optionText] of options) control.add(new Option(optionText, optionValue));
+          control.value = value || '';
+        } else if (type === 'textarea') {
+          control = element('textarea'); control.value = value || '';
+        } else {
+          control = element('input'); control.type = type; control.value = value ?? '';
+          if (type === 'number') { control.step = '0.01'; control.min = '0'; }
+        }
+        if (name === 'title') control.required = true;
+        control.id = inputId; control.name = name; control.setAttribute('aria-describedby', `error-${name}`);
+        const error = element('small', 'field-error'); error.id = `error-${name}`; error.dataset.fieldError = name;
+        wrapper.append(labelNode, control, error); grid.append(wrapper);
+      };
+      addField('title','Título',product.title || product.name);
+      addField('sku','SKU',product.sku);
+      addField('category','Categoria',product.category);
+      if (!product.category && product.category_suggestion) {
+        const categoryField = grid.querySelector('[name="category"]').parentElement;
+        const suggestion = element('div', 'category-suggestion', `Sugestão da pasta: ${product.category_suggestion}`);
+        const confirmSuggestion = element('button', 'category-confirm', `Usar ${product.category_suggestion}`);
+        confirmSuggestion.type = 'button';
+        confirmSuggestion.addEventListener('click', async () => {
+          confirmSuggestion.disabled = true;
+          try {
+            const response = await fetch(`/api/products/${encodeURIComponent(productId)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ category: product.category_suggestion }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Não foi possível salvar a categoria.');
+            render(result);
+            document.querySelector('#save-state').textContent = 'Categoria confirmada e salva no manifesto.';
+          } catch (error) {
+            confirmSuggestion.disabled = false;
+            document.querySelector('#save-state').textContent = error.message;
+            document.querySelector('#save-state').classList.add('error');
+          }
+        });
+        suggestion.append(confirmSuggestion);
+        categoryField.append(suggestion);
+      }
+      addField('status','Estado',product.status || 'pending',null,[['pending','Pendente'],['published','Publicado'],['sold','Vendido'],['archived','Arquivado']]);
+      addField('price','Preço',product.price,'number');
+      addField('cost','Custo',product.cost,'number');
+      addField('condition','Condição',product.condition,null,[['','Não definida'],['new','Novo'],['used','Usado'],['refurbished','Recondicionado']]);
+      addField('marketplaces','Marketplaces',(product.marketplaces || []).join(', '));
+      addField('description','Descrição',product.description,'textarea',null,true);
+      form.append(grid);
+      const actions = element('div','form-actions');
+      const discard = element('button','button secondary','Descartar'); discard.type='button';
+      const save = element('button','button primary','Salvar alterações'); save.type='submit';
+      actions.append(discard,save); form.append(actions);
+      const saveState = element('p','save-state'); saveState.id='save-state';
+      editor.append(summary,form,saveState);
+      layout.append(gallery,editor); main.append(layout);
+
+      function clearErrors() {
+        summary.classList.remove('visible'); summary.textContent='';
+        for (const error of form.querySelectorAll('[data-field-error]')) error.textContent='';
+        for (const control of form.elements) control.removeAttribute('aria-invalid');
+      }
+      form.addEventListener('input', (event) => {
+        const fieldError = form.querySelector(`[data-field-error="${event.target.name}"]`);
+        if (fieldError) fieldError.textContent='';
+        event.target.removeAttribute('aria-invalid');
+      });
+      discard.addEventListener('click', () => render(product));
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault(); clearErrors(); save.disabled=true; saveState.textContent='Salvando...'; saveState.classList.remove('error');
+        const body = {
+          title: form.elements.title.value,
+          sku: form.elements.sku.value || null,
+          category: form.elements.category.value || null,
+          status: form.elements.status.value,
+          price: form.elements.price.value ? Number(form.elements.price.value) : null,
+          cost: form.elements.cost.value ? Number(form.elements.cost.value) : null,
+          condition: form.elements.condition.value || null,
+          marketplaces: form.elements.marketplaces.value.split(',').map(value => value.trim()).filter(Boolean),
+          description: form.elements.description.value || null,
+        };
+        try {
+          const response = await fetch(`/api/products/${encodeURIComponent(productId)}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+          const result = await response.json();
+          if (!response.ok) {
+            const issues = Array.isArray(result.detail) ? result.detail : [];
+            const messages = [];
+            for (const issue of issues) {
+              const fieldName = issue.field || (issue.loc || []).filter(part => part !== 'body').at(-1);
+              const fieldError = fieldName && form.querySelector(`[data-field-error="${fieldName}"]`);
+              if (fieldError) { fieldError.textContent = issue.message || issue.msg || 'Valor inválido.'; const control = form.elements.namedItem(fieldName); if (control) control.setAttribute('aria-invalid','true'); }
+              messages.push(issue.message || issue.msg || result.detail);
+            }
+            summary.textContent = messages.filter(Boolean).join(' ' ) || (typeof result.detail === 'string' ? result.detail : 'Revise os campos destacados.'); summary.classList.add('visible');
+            saveState.textContent='Não foi possível salvar.'; saveState.classList.add('error');
+            return;
+          }
+          saveState.textContent='Alterações salvas no manifesto.';
+          render(result);
+          document.querySelector('#save-state').textContent='Alterações salvas no manifesto.';
+        } catch (error) { saveState.textContent=error.message || 'Falha de conexão.'; saveState.classList.add('error'); }
+        finally { save.disabled=false; }
+      });
+    }
+
+    async function loadProduct() {
+      try {
+        const response = await fetch(`/api/products/${encodeURIComponent(productId)}`);
+        if (!response.ok) throw new Error(response.status === 404 ? 'Produto não encontrado.' : 'Não foi possível carregar o produto.');
+        render(await response.json());
+      } catch (error) { main.replaceChildren(element('div','page-error',error.message)); }
+    }
+    loadProduct();
+  </script>
+</body>
+</html>

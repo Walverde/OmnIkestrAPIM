@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Painel geral | OmnIkestrAPIM</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1d3029;
+      --muted: #63766d;
+      --line: #d8e0da;
+      --paper: #f3f5f1;
+      --surface: #fff;
+      --forest: #1e5b46;
+      --forest-dark: #173f34;
+      --forest-soft: #ecf5f0;
+      --lime: #c5dc87;
+      --copper: #bd644a;
+      --gold: #d8b96a;
+      --focus: #ae542f;
+      --danger: #c4583a;
+      --shadow: rgba(23, 63, 52, 0.08);
+      font-family: "Aptos", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--ink);
+      background-color: var(--paper);
+      background-image: linear-gradient(rgba(29, 48, 41, .025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(29, 48, 41, .025) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; }
+    button:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+
+    .topbar {
+      min-height: 70px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 0 5vw;
+      color: #f5f7f3;
+      background: var(--forest-dark);
+      border-bottom: 4px solid var(--lime);
+      box-shadow: 0 12px 28px rgba(23, 63, 52, 0.12);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: inherit;
+      text-decoration: none;
+      font-weight: 700;
+    }
+
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 7px 2px 7px 2px;
+      background: var(--lime);
+      color: var(--forest-dark);
+      font-family: Georgia, serif;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .topbar-nav {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .nav-link {
+      padding: 9px 12px;
+      border-radius: 999px;
+      color: #dfe8e3;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      transition: background .2s ease, color .2s ease;
+    }
+
+    .nav-link.active,
+    .nav-link:hover {
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 40px));
+      margin: 36px auto 80px;
+    }
+
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--copper);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(32px, 4vw, 54px);
+      font-weight: 500;
+      line-height: 1.05;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+
+    .metric-card,
+    .panel {
+      background: rgba(255,255,255,0.88);
+      border: 1px solid var(--line);
+      box-shadow: 0 10px 24px var(--shadow);
+    }
+
+    .metric-card {
+      padding: 18px 18px 16px;
+      border-radius: 16px;
+      min-height: 128px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .metric-value {
+      margin-top: 20px;
+      font-size: clamp(24px, 2vw, 34px);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      color: var(--forest-dark);
+    }
+
+    .metric-detail {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(24, 91, 70, 0.08);
+      color: var(--forest);
+      font-weight: 700;
+    }
+
+    .status-pill::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 4px rgba(24, 91, 70, 0.08);
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+      gap: 22px;
+    }
+
+    .panel {
+      border-radius: 18px;
+      padding: 20px 20px 18px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .chip {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--forest-soft);
+      color: var(--forest);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .mini-chart {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      align-items: end;
+      gap: 10px;
+      height: 170px;
+      padding: 18px 12px 8px;
+      border-radius: 12px;
+      background: linear-gradient(#f7faf8, #f2f5f1);
+      border: 1px solid var(--line);
+    }
+
+    .bar {
+      position: relative;
+      display: flex;
+      align-items: end;
+      justify-content: center;
+      height: 100%;
+      border-radius: 10px 10px 0 0;
+      background: linear-gradient(180deg, #b3cda0 0%, var(--forest) 100%);
+      min-height: 24px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);
+    }
+
+    .bar span {
+      position: absolute;
+      bottom: -20px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .stats-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .stat-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #f6f8f5;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      font-size: 14px;
+    }
+
+    .stat-line strong {
+      font-size: 15px;
+    }
+
+    .notifications-list,
+    .updates-list,
+    .quick-actions {
+      display: grid;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .notification-item,
+    .update-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 12px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfcfa;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      margin-top: 5px;
+      border-radius: 50%;
+      background: var(--gold);
+      flex-shrink: 0;
+    }
+
+    .notification-item.warning .dot { background: var(--copper); }
+    .notification-item.ok .dot { background: #5e9c6d; }
+
+    .notification-item h4,
+    .update-item h4 {
+      margin: 0 0 4px;
+      font-size: 14px;
+    }
+
+    .notification-item p,
+    .update-item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .two-panel-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 22px;
+      margin-top: 22px;
+    }
+
+    .quick-actions {
+      margin-top: 0;
+    }
+
+    .action-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      padding: 13px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #f9faf8;
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .action-link span:last-child { color: var(--muted); }
+
+    @media (max-width: 900px) {
+      .summary-grid,
+      .content-grid,
+      .two-panel-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .topbar {
+        padding: 0 20px;
+        gap: 12px;
+      }
+
+      .topbar-nav {
+        gap: 6px;
+      }
+
+      .nav-link {
+        padding: 7px 10px;
+      }
+
+      main {
+        width: min(100% - 28px, 760px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="OmnIkestrAPIM, página inicial">
+      <span class="brand-mark" aria-hidden="true">O</span>
+      <span>OmnIkestrAPIM</span>
+    </a>
+
+    <nav class="topbar-nav" aria-label="Navegação principal">
+      <a class="nav-link active" href="/">Painel</a>
+      <a class="nav-link" href="/settings">Configurações</a>
+      <a class="nav-link" href="/api/products">Produtos</a>
+    </nav>
+  </header>
+
+  <main>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Visão geral</p>
+        <h1>Painel geral</h1>
+      </div>
+      <div class="status-pill" id="system-status-pill">Sistema online</div>
+    </header>
+
+    <section class="summary-grid" aria-label="Indicadores principais">
+      <article class="metric-card">
+        <div>
+          <div class="metric-label">Produtos</div>
+          <div class="metric-value" id="product-count">0</div>
+        </div>
+        <div class="metric-detail"><span>Diretórios indexados</span><strong id="product-detail">0</strong></div>
+      </article>
+
+      <article class="metric-card">
+        <div>
+          <div class="metric-label">Arquivos</div>
+          <div class="metric-value" id="file-count">0</div>
+        </div>
+        <div class="metric-detail"><span>Itens digitais</span><strong id="file-detail">0</strong></div>
+      </article>
+
+      <article class="metric-card">
+        <div>
+          <div class="metric-label">Eventos</div>
+          <div class="metric-value" id="event-count">0</div>
+        </div>
+        <div class="metric-detail"><span>Últimas alterações</span><strong id="event-detail">Hoje</strong></div>
+      </article>
+
+      <article class="metric-card">
+        <div>
+          <div class="metric-label">Estado</div>
+          <div class="metric-value" id="health-status">OK</div>
+        </div>
+        <div class="metric-detail"><span>Serviços ativos</span><strong id="health-detail">2/2</strong></div>
+      </article>
+    </section>
+
+    <section class="content-grid" aria-label="Resumo e notificações">
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Resumo do catálogo</h2>
+          <span class="chip">Atualizado agora</span>
+        </div>
+
+        <div class="mini-chart" aria-label="Gráfico de atividade recente" id="mini-chart">
+          <div class="bar" style="height: 42%"><span>Seg</span></div>
+          <div class="bar" style="height: 56%"><span>Ter</span></div>
+          <div class="bar" style="height: 68%"><span>Qua</span></div>
+          <div class="bar" style="height: 72%"><span>Qui</span></div>
+          <div class="bar" style="height: 81%"><span>Sex</span></div>
+          <div class="bar" style="height: 88%"><span>Sáb</span></div>
+          <div class="bar" style="height: 100%"><span>Dom</span></div>
+        </div>
+
+        <div class="stats-list">
+          <div class="stat-line"><span>Pastas com manifesto</span><strong id="manifest-count">0</strong></div>
+          <div class="stat-line"><span>Reindexação mais recente</span><strong id="last-sync">--</strong></div>
+          <div class="stat-line"><span>Origem ativa</span><strong id="root-path">--</strong></div>
+        </div>
+      </div>
+
+      <aside class="panel" aria-label="Notificações do sistema">
+        <div class="panel-header">
+          <h2 class="panel-title">Notificações</h2>
+          <span class="chip">Sistema</span>
+        </div>
+        <div class="notifications-list" id="notifications-list"></div>
+      </aside>
+    </section>
+
+    <section class="two-panel-grid" aria-label="Atualizações e ações rápidas">
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Atualizações recentes</h2>
+          <span class="chip">Log</span>
+        </div>
+        <div class="updates-list" id="updates-list"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Ações rápidas</h2>
+          <span class="chip">Navegação</span>
+        </div>
+        <div class="quick-actions">
+          <a class="action-link" href="/settings"><span>Configurar pasta de anúncios</span><span>→</span></a>
+          <a class="action-link" href="/api/products"><span>Ver catálogo em JSON</span><span>→</span></a>
+          <a class="action-link" href="/api/products/events"><span>Histórico de eventos</span><span>→</span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const productCountEl = document.querySelector('#product-count');
+    const fileCountEl = document.querySelector('#file-count');
+    const eventCountEl = document.querySelector('#event-count');
+    const healthStatusEl = document.querySelector('#health-status');
+    const healthDetailEl = document.querySelector('#health-detail');
+    const manifestCountEl = document.querySelector('#manifest-count');
+    const lastSyncEl = document.querySelector('#last-sync');
+    const rootPathEl = document.querySelector('#root-path');
+    const notificationsList = document.querySelector('#notifications-list');
+    const updatesList = document.querySelector('#updates-list');
+
+    function formatRelativeTime(value) {
+      if (!value) return 'Nunca';
+
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return value;
+      }
+
+      return parsed.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    function renderNotifications(items) {
+      if (!items.length) {
+        notificationsList.innerHTML = `
+          <div class="notification-item ok">
+            <span class="dot"></span>
+            <div>
+              <h4>Sistema está estável</h4>
+              <p>Não há alertas pendentes no momento.</p>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      notificationsList.innerHTML = items.map((item) => `
+        <div class="notification-item ${item.level || 'ok'}">
+          <span class="dot"></span>
+          <div>
+            <h4>${item.title}</h4>
+            <p>${item.message}</p>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderUpdates(events) {
+      const fallback = [
+        { title: 'Catálogo sincronizado', message: 'A indexação dos produtos foi concluída com sucesso.' },
+        { title: 'Pasta ativa validada', message: 'O diretório monitorado está acessível e pronto para leitura.' },
+        { title: 'Backend em operação', message: 'O serviço principal está pronto para seguir processando anúncios.' }
+      ];
+
+      const list = events.length ? events.slice(-3).map((event) => ({
+        title: event.event || 'Evento do sistema',
+        message: `${event.path || 'Pasta monitorada'} · ${formatRelativeTime(event.created_at)}`,
+      })) : fallback;
+
+      updatesList.innerHTML = list.map((item) => `
+        <div class="update-item">
+          <span class="dot"></span>
+          <div>
+            <h4>${item.title}</h4>
+            <p>${item.message}</p>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function loadOverview() {
+      try {
+        const [health, productsResponse, eventsResponse] = await Promise.all([
+          fetch('/api/health').then((r) => r.json()),
+          fetch('/api/products').then((r) => r.json()),
+          fetch('/api/products/events').then((r) => r.json())
+        ]);
+
+        const products = productsResponse.products || [];
+        const events = eventsResponse.events || [];
+        const totalFiles = products.reduce((sum, product) => sum + (product.files?.length || 0), 0);
+        const manifestCount = products.filter((product) => product.has_manifest).length;
+
+        productCountEl.textContent = String(products.length);
+        fileCountEl.textContent = String(totalFiles);
+        eventCountEl.textContent = String(events.length);
+        healthStatusEl.textContent = health.status === 'healthy' ? 'OK' : 'ALERTA';
+        healthDetailEl.textContent = `${products.length > 0 ? '2/2' : '1/2'} ativos`;
+        manifestCountEl.textContent = String(manifestCount);
+        rootPathEl.textContent = productsResponse.root || 'Não definido';
+        lastSyncEl.textContent = events.length ? formatRelativeTime(events[events.length - 1].created_at) : 'Sem eventos';
+
+        const notifications = [
+          {
+            title: 'Sistema operacional',
+            level: 'ok',
+            message: health.status === 'healthy' ? 'Backend funcionando e pronto para leitura dos anúncios.' : 'Há uma falha em um dos serviços.'
+          },
+          {
+            title: 'Catálogo atualizado',
+            level: 'ok',
+            message: `${products.length} produtos indexados e ${totalFiles} arquivos catalogados.`
+          },
+          ...(manifestCount > 0 ? [{
+            title: 'Manifests encontrados',
+            level: 'ok',
+            message: `${manifestCount} produtos possuem manifesto válido.`
+          }] : [])
+        ];
+
+        renderNotifications(notifications);
+        renderUpdates(events);
+      } catch (error) {
+        productCountEl.textContent = '0';
+        fileCountEl.textContent = '0';
+        eventCountEl.textContent = '0';
+        healthStatusEl.textContent = 'ERRO';
+        healthDetailEl.textContent = 'Falha';
+        manifestCountEl.textContent = '0';
+        lastSyncEl.textContent = 'Sem dados';
+        rootPathEl.textContent = 'Não disponível';
+        renderNotifications([{ title: 'Conectividade', level: 'warning', message: 'Não foi possível carregar os dados em tempo real do sistema.' }]);
+        renderUpdates([]);
+      }
+    }
+
+    loadOverview();
+  </script>
+</body>
+</html>

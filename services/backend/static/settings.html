@@ -249,7 +249,11 @@
       <span class="brand-mark" aria-hidden="true">O</span>
       <span>OmnIkestrAPIM</span>
     </a>
-    <span class="topbar-label">Configurações do sistema</span>
+    <nav class="topbar-nav" aria-label="Navegação principal" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <a href="/" style="color:#dfe8e3;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">Painel</a>
+      <a href="/settings" style="color:#fff;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">Configurações</a>
+      <a href="/api/products" style="color:#dfe8e3;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;">Produtos</a>
+    </nav>
   </header>
 
   <main>
@@ -312,32 +316,22 @@
       status.dataset.error = String(isError);
     }
 
-    async function initialize() {
-      try {
-        const settings = await requestJson(`${pickerUrl}/status`);
-        helperStatus.textContent = "Auxiliar conectado";
-        selectedPath.textContent = settings.products_dir;
-        currentPath.textContent = settings.products_dir;
-        folderList.innerHTML = '<div class="empty-state">Selecione qualquer pasta local ou unidade mapeada, como D:\\Produtos.</div>';
-      } catch (error) {
-        helperStatus.textContent = "Auxiliar desconectado";
-        selectedPath.textContent = "Não foi possível consultar o Windows";
-        folderList.replaceChildren();
-        const message = document.createElement("div");
-        message.className = "error-state";
-        message.textContent = "Inicie tools\\windows_folder_picker.ps1 em um PowerShell separado e recarregue esta página.";
-        folderList.append(message);
-      }
-    }
-
-    pickButton.addEventListener("click", async () => {
+    async function openFolderPicker(autoTrigger = false) {
       pickButton.disabled = true;
-      pickButton.textContent = "Abrindo seletor...";
+      pickButton.textContent = autoTrigger ? "Abrindo seletor..." : "Abrindo seletor...";
+
       try {
         const data = await requestJson(`${pickerUrl}/pick`, {
           method: "POST",
         });
-        if (data.cancelled) return;
+
+        if (data.cancelled) {
+          if (autoTrigger) {
+            setMessage("Seleção cancelada. Você pode reiniciar o processo a qualquer momento.");
+          }
+          return;
+        }
+
         selectedWindowsPath = data.path;
         currentPath.textContent = selectedWindowsPath;
         folderList.innerHTML = '<div class="empty-state">Pasta selecionada. A configuração ativa só muda depois de aplicar.</div>';
@@ -349,6 +343,34 @@
         pickButton.disabled = false;
         pickButton.textContent = "Selecionar pasta...";
       }
+    }
+
+    async function initialize() {
+      try {
+        const settings = await requestJson(`${pickerUrl}/status`);
+        helperStatus.textContent = "Auxiliar conectado";
+        selectedPath.textContent = settings.products_dir;
+        currentPath.textContent = settings.products_dir;
+        folderList.innerHTML = '<div class="empty-state">Selecione qualquer pasta local ou unidade mapeada, como D:\\Produtos.</div>';
+        pickButton.disabled = false;
+
+        const pathIsConfigured = !!settings.products_dir && settings.products_dir.trim() !== "" && settings.products_dir !== "Nenhuma pasta carregada";
+        if (!pathIsConfigured) {
+          await openFolderPicker(true);
+        }
+      } catch (error) {
+        helperStatus.textContent = "Auxiliar desconectado";
+        selectedPath.textContent = "Não foi possível consultar o Windows";
+        folderList.replaceChildren();
+        const message = document.createElement("div");
+        message.className = "error-state";
+        message.textContent = "Inicie tools\\windows_folder_picker.ps1 em um PowerShell separado e recarregue esta página.";
+        folderList.append(message);
+      }
+    }
+
+    pickButton.addEventListener("click", () => {
+      openFolderPicker(false);
     });
 
     applyButton.addEventListener("click", async () => {

@@ -1,11 +1,12 @@
 import os
 
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
-from main import Base, ProductRecord, _scan_products, _sync_product_catalog
+from main import Base, ProductRecord, _scan_products, _sync_product_catalog, app
 
 
 def test_scan_products_detects_manifest_and_files(tmp_path):
@@ -47,3 +48,17 @@ def test_sync_product_catalog_persists_and_removes_products(tmp_path):
         assert session.scalar(select(ProductRecord)) is None
 
     database.dispose()
+
+
+def test_dashboard_routes_return_html():
+    client = TestClient(app)
+
+    root = client.get("/")
+    dashboard = client.get("/dashboard")
+    home = client.get("/home")
+
+    assert root.status_code == 200
+    assert dashboard.status_code == 200
+    assert home.status_code == 200
+    assert "OmnIkestrAPIM" in root.text
+    assert "Painel geral" in dashboard.text

@@ -46,6 +46,7 @@ class ProductRecord(Base):
 
 
 PRODUCTS_ROOT = Path(os.getenv("PRODUCTS_ROOT", "/data/products")).resolve()
+DASHBOARD_PAGE = Path(__file__).parent / "static" / "dashboard.html"
 SETTINGS_PAGE = Path(__file__).parent / "static" / "settings.html"
 
 
@@ -181,7 +182,17 @@ def health_check():
 
 @app.get("/")
 def read_root():
-    return {"message": "Welcome to OmnIkestrAPIM API"}
+    return FileResponse(DASHBOARD_PAGE, media_type="text/html")
+
+
+@app.get("/home", response_class=FileResponse)
+def home_page():
+    return FileResponse(DASHBOARD_PAGE, media_type="text/html")
+
+
+@app.get("/dashboard", response_class=FileResponse)
+def dashboard_page():
+    return FileResponse(DASHBOARD_PAGE, media_type="text/html")
 
 
 @app.get("/settings", response_class=FileResponse)

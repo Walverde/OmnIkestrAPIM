@@ -166,6 +166,29 @@ Aplicação sobe em TrueNAS apenas com volumes e variáveis de ambiente, sem qua
 
 ---
 
+### Etapa H — AI Enrichment (Local-first)
+**Status:** Proposta (após Etapa C ou D)
+
+- [ ] Serviço de IA local via Ollama (ou LiteLLM como proxy)
+- [ ] Capacidade de gerar/sugerir:
+  - Título otimizado
+  - Descrição completa
+  - Atributos faltantes
+  - Categoria sugerida
+  - Preço sugerido (sempre respeitando hard floor)
+- [ ] Campos no `product.yaml` claramente separados:
+  - `title` / `title_ai`
+  - `description` / `description_ai`
+  - `price` / `price_suggested_ai`
+  - `ai_metadata` (modelo usado, data, prompt version, confiança)
+- [ ] Modos de operação:
+  - Manual (usuário pede e aprova)
+  - Semi-automático (sugere e espera confirmação)
+  - Automático (com regras de confiança mínima)
+- [ ] Integração com Vision (opcional): analisar fotos do produto para gerar descrição
+- [ ] Fila de processamento + rate limit local (para não matar o NAS)
+      
+
 ## 5. Decisões em Aberto
 
 Estas decisões devem ser fechadas preferencialmente ainda na Etapa B:

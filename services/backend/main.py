@@ -147,7 +147,30 @@ class ProductRecord(Base):
     )
 
 
-PRODUCTS_ROOT = Path(os.getenv("PRODUCTS_ROOT", "/data/products")).resolve()
+def _split_env_paths(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return []
+    return [part.strip() for part in raw_value.replace(";", ",").split(",") if part.strip()]
+
+
+def _resolve_product_roots() -> tuple[Path, ...]:
+    configured_roots = _split_env_paths(os.getenv("PRODUCT_ROOTS"))
+    if not configured_roots:
+        configured_roots = _split_env_paths(os.getenv("PRODUCTS_ROOT")) or ["/data/products"]
+
+    resolved_roots: list[Path] = []
+    seen: set[str] = set()
+    for root in configured_roots:
+        normalized = Path(root).expanduser().resolve()
+        key = str(normalized)
+        if key not in seen:
+            seen.add(key)
+            resolved_roots.append(normalized)
+    return tuple(resolved_roots)
+
+
+PRODUCT_ROOTS = _resolve_product_roots()
+PRODUCTS_ROOT = PRODUCT_ROOTS[0]
 DEFAULT_WORKSPACE_ID = "default"
 MAX_PRODUCT_EVENTS = 10000
 PRODUCT_EVENT_RETENTION_DAYS = 90
@@ -159,6 +182,10 @@ SETTINGS_PAGE = Path(__file__).parent / "static" / "settings.html"
 
 
 def _run_migrations() -> None:
+    if DATABASE_URL.startswith("sqlite"):
+        Base.metadata.create_all(bind=engine)
+        return
+
     config = AlembicConfig(str(Path(__file__).parent / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
     command.upgrade(config, "head")
@@ -168,7 +195,7 @@ def _run_migrations() -> None:
 async def lifespan(_: FastAPI):
     _run_migrations()
     with SessionLocal() as db:
-        _sync_product_catalog(db, PRODUCTS_ROOT)
+        _sync_product_catalog_for_roots(db, PRODUCT_ROOTS)
     yield
 
 app = FastAPI(
@@ -584,17 +611,35 @@ def _upsert_product_record(
     return record
 
 
-def _sync_product_catalog(
-    db: Session, root: Path, workspace_id: str = DEFAULT_WORKSPACE_ID
+def _root_for_path(path: str | Path, roots: tuple[Path, ...] = PRODUCT_ROOTS) -> Path | None:
+    candidate = Path(path).expanduser().resolve()
+    for root in roots:
+        try:
+            candidate.relative_to(root)
+            return root
+        except ValueError:
+            continue
+    return None
+
+
+def _sync_product_catalog_for_roots(
+    db: Session, roots: tuple[Path, ...] | list[Path] | None, workspace_id: str = DEFAULT_WORKSPACE_ID
 ) -> List[ProductSummary]:
+    normalized_roots = tuple(Path(root).expanduser().resolve() for root in (roots or PRODUCT_ROOTS))
     _ensure_workspace(db, workspace_id)
     existing_records = db.scalars(
         select(ProductRecord).where(ProductRecord.workspace_id == workspace_id)
     ).all()
-    preferred_ids = {record.path: record.product_uuid for record in existing_records}
-    products = _scan_products(root, preferred_ids)
-    current_paths = {product.path for product in products}
-    current_uuids = {product.id for product in products if product.id}
+    preferred_ids: dict[str, str] = {record.path: record.product_uuid for record in existing_records}
+    products: List[ProductSummary] = []
+    current_paths: set[str] = set()
+    current_uuids: set[str] = set()
+
+    for root in normalized_roots:
+        discovered = _scan_products(root, preferred_ids)
+        products.extend(discovered)
+        current_paths.update(product.path for product in discovered)
+        current_uuids.update(product.id for product in discovered if product.id)
 
     for product in products:
         _upsert_product_record(db, product, workspace_id)
@@ -605,6 +650,12 @@ def _sync_product_catalog(
 
     db.commit()
     return products
+
+
+def _sync_product_catalog(
+    db: Session, root: Path, workspace_id: str = DEFAULT_WORKSPACE_ID
+) -> List[ProductSummary]:
+    return _sync_product_catalog_for_roots(db, (Path(root).expanduser().resolve(),), workspace_id)
 
 
 def _is_product_directory(path: Path) -> bool:
@@ -866,6 +917,7 @@ def list_products(
         "categories": categories,
         "folder_groups": folder_groups,
         "root": str(PRODUCTS_ROOT),
+        "roots": [str(root) for root in PRODUCT_ROOTS],
     }
 
 
@@ -874,8 +926,8 @@ def scan_products(
     workspace_id: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=64),
     db: Session = Depends(get_db),
 ):
-    products = _sync_product_catalog(db, PRODUCTS_ROOT, workspace_id)
-    return {"products": [product.model_dump() for product in products]}
+    products = _sync_product_catalog_for_roots(db, PRODUCT_ROOTS, workspace_id)
+    return {"products": [product.model_dump() for product in products], "roots": [str(root) for root in PRODUCT_ROOTS]}
 
 
 def _prune_product_events(db: Session, workspace_id: str) -> None:
@@ -940,7 +992,8 @@ def receive_product_event(event: ProductEvent, db: Session = Depends(get_db)):
     db.add(record)
     db.commit()
     db.refresh(record)
-    indexed_products = _sync_product_for_event(db, PRODUCTS_ROOT, event)
+    root = _root_for_path(event.path, PRODUCT_ROOTS) or _root_for_path(event.destination_path, PRODUCT_ROOTS) or PRODUCTS_ROOT
+    indexed_products = _sync_product_for_event(db, root, event)
     _prune_product_events(db, event.workspace_id)
     return {
         "status": "accepted",

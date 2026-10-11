@@ -1,5 +1,6 @@
 import logging
 import os
+import fnmatch
 import threading
 import time
 from pathlib import Path
@@ -15,7 +16,32 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-WATCH_DIRECTORY = os.getenv("WATCH_DIR", "/data/products")
+def _split_env_paths(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return []
+    return [part.strip() for part in raw_value.replace(";", ",").split(",") if part.strip()]
+
+
+def _resolve_watch_directories() -> tuple[Path, ...]:
+    configured_roots = _split_env_paths(os.getenv("WATCH_DIRS") or os.getenv("WATCH_DIR"))
+    if not configured_roots:
+        configured_roots = _split_env_paths(os.getenv("PRODUCT_ROOTS")) or ["/data/products"]
+    if not configured_roots:
+        configured_roots = ["/data/products"]
+
+    resolved_roots: list[Path] = []
+    seen: set[str] = set()
+    for root in configured_roots:
+        normalized = Path(root).expanduser().resolve()
+        key = str(normalized)
+        if key not in seen:
+            seen.add(key)
+            resolved_roots.append(normalized)
+    return tuple(resolved_roots)
+
+
+WATCH_DIRECTORIES = _resolve_watch_directories()
+WATCH_DIRECTORY = str(WATCH_DIRECTORIES[0]) if WATCH_DIRECTORIES else "/data/products"
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 DEBOUNCE_SECONDS = float(os.getenv("WATCH_DEBOUNCE_SECONDS", "1.5"))
 RECONCILE_INTERVAL_SECONDS = int(os.getenv("WATCH_RECONCILE_INTERVAL_SECONDS", "900"))
@@ -27,22 +53,43 @@ DIRECT_MEDIA_EXTENSIONS = {
     "tiff", "wav", "webm", "webp",
 }
 LEGACY_GROUP_MANIFEST_KEYS = {"schema_version", "id", "title"}
+DEFAULT_IGNORE_PATTERNS = ("*.psd", "~$*", "*.tmp", "Thumbs.db", ".DS_Store")
+IGNORE_PATTERNS = tuple(
+    pattern.strip()
+    for pattern in (
+        os.getenv("WATCH_IGNORE_PATTERNS") or ",".join(DEFAULT_IGNORE_PATTERNS)
+    ).split(",")
+    if pattern.strip()
+)
 
 
 class DebouncedProductNotifier:
     def __init__(
         self,
-        watch_directory: str,
+        watch_directory: str | tuple[str, ...] | None,
         backend_url: str,
         debounce_seconds: float = DEBOUNCE_SECONDS,
         post: Callable[..., Any] | None = None,
     ):
-        self.watch_directory = Path(watch_directory).resolve()
+        if isinstance(watch_directory, (tuple, list)):
+            self.watch_directories = tuple(Path(path).expanduser().resolve() for path in watch_directory)
+        else:
+            self.watch_directories = (Path(watch_directory or WATCH_DIRECTORY).expanduser().resolve(),)
+        self.watch_directory = self.watch_directories[0]
         self.backend_url = backend_url.rstrip("/")
         self.debounce_seconds = debounce_seconds
         self.post = post or requests.post
         self._lock = threading.Lock()
         self._pending: dict[str, tuple[dict[str, Any], threading.Timer]] = {}
+
+    def _root_for_path(self, path: Path) -> Path | None:
+        for root in self.watch_directories:
+            try:
+                path.relative_to(root)
+                return root
+            except ValueError:
+                continue
+        return None
 
     def _is_product_directory(self, path: Path) -> bool:
         if not path.is_dir():
@@ -88,22 +135,25 @@ class DebouncedProductNotifier:
 
     def _product_key(self, path: str, is_directory: bool = False) -> str:
         candidate = Path(path).resolve()
+        root = self._root_for_path(candidate)
+        if root is None:
+            return str(candidate)
         try:
-            relative_path = candidate.relative_to(self.watch_directory)
+            relative_path = candidate.relative_to(root)
         except ValueError:
             return str(candidate)
         if not relative_path.parts:
-            return str(self.watch_directory)
+            return str(root)
 
         ancestor = candidate if is_directory or candidate.is_dir() else candidate.parent
-        while ancestor != self.watch_directory and self.watch_directory in ancestor.parents:
+        while ancestor != root and root in ancestor.parents:
             if (
                 ancestor.name.casefold() not in RESERVED_PRODUCT_DIRECTORY_NAMES
                 and self._is_product_directory(ancestor)
             ):
                 return str(ancestor)
             ancestor = ancestor.parent
-        return str(self.watch_directory / relative_path.parts[0])
+        return str(root / relative_path.parts[0])
 
     def submit(
         self,
@@ -160,8 +210,28 @@ class DebouncedProductNotifier:
 
 
 class ProductFolderHandler(FileSystemEventHandler):
-    def __init__(self, notifier: DebouncedProductNotifier):
+    def __init__(
+        self,
+        notifier: DebouncedProductNotifier,
+        ignore_patterns: tuple[str, ...] = IGNORE_PATTERNS,
+    ):
         self.notifier = notifier
+        self.ignore_patterns = ignore_patterns
+
+    def _is_ignored(self, path: str) -> bool:
+        candidate = Path(path).resolve()
+        root = self.notifier._root_for_path(candidate)
+        if root is None:
+            return True
+        relative_path = candidate.relative_to(root)
+
+        if any(part.casefold() == "_arquivos" for part in relative_path.parts):
+            return True
+        return any(
+            fnmatch.fnmatchcase(relative_path.as_posix(), pattern)
+            or any(fnmatch.fnmatchcase(part, pattern) for part in relative_path.parts)
+            for pattern in self.ignore_patterns
+        )
 
     def _queue_event(
         self,
@@ -170,6 +240,17 @@ class ProductFolderHandler(FileSystemEventHandler):
         is_directory: bool,
         destination_path: str | None = None,
     ) -> None:
+        if event_type == "moved" and destination_path:
+            source_ignored = self._is_ignored(path)
+            destination_ignored = self._is_ignored(destination_path)
+            if source_ignored and destination_ignored:
+                return
+            if source_ignored:
+                event_type, path, destination_path = "created", destination_path, None
+            elif destination_ignored:
+                event_type, destination_path = "deleted", None
+        elif self._is_ignored(path):
+            return
         self.notifier.submit(event_type, path, is_directory, destination_path)
 
     def on_created(self, event):
@@ -197,14 +278,16 @@ def reconcile_catalog(backend_url: str = BACKEND_URL) -> None:
 
 
 if __name__ == "__main__":
-    logging.info("🔍 Iniciando File Watcher no diretório: %s", WATCH_DIRECTORY)
-    if not os.path.exists(WATCH_DIRECTORY):
-        os.makedirs(WATCH_DIRECTORY, exist_ok=True)
+    logging.info("🔍 Iniciando File Watcher nos diretórios: %s", ", ".join(str(path) for path in WATCH_DIRECTORIES))
+    for watch_directory in WATCH_DIRECTORIES:
+        if not os.path.exists(watch_directory):
+            os.makedirs(watch_directory, exist_ok=True)
 
-    notifier = DebouncedProductNotifier(WATCH_DIRECTORY, BACKEND_URL)
+    notifier = DebouncedProductNotifier(WATCH_DIRECTORIES, BACKEND_URL)
     event_handler = ProductFolderHandler(notifier)
     observer = PollingObserver(timeout=POLL_INTERVAL_SECONDS)
-    observer.schedule(event_handler, path=WATCH_DIRECTORY, recursive=True)
+    for watch_directory in WATCH_DIRECTORIES:
+        observer.schedule(event_handler, path=str(watch_directory), recursive=True)
     observer.start()
     next_reconciliation = time.monotonic() + RECONCILE_INTERVAL_SECONDS
 

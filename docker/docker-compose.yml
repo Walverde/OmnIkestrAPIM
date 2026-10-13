@@ -23,12 +23,16 @@ services:
       dockerfile: Dockerfile
     container_name: omnikestr_backend
     restart: always
+    user: "${PUID:-1000}:${PGID:-1000}"
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-omnikestr}:${POSTGRES_PASSWORD:-omnikestr_dev}@db:5432/${POSTGRES_DB:-omnikestr}
-      - PRODUCTS_ROOT=/data/products
+      - PRODUCTS_ROOT=${PRODUCTS_ROOT:-/data/products}
+      - PRODUCT_ROOTS=${PRODUCT_ROOTS:-/data/products}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
       - PICKER_TOKEN=${PICKER_TOKEN:-}
     volumes:
       - ../services/backend:/app
@@ -47,9 +51,15 @@ services:
       dockerfile: Dockerfile
     container_name: omnikestr_watcher
     restart: always
+    user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       - PYTHONUNBUFFERED=1
-      - WATCH_DIR=/data/products
+      - WATCH_DIR=${WATCH_DIR:-/data/products}
+      - WATCH_DIRS=${WATCH_DIRS:-/data/products}
+      - WATCH_IGNORE_PATTERNS=${WATCH_IGNORE_PATTERNS:-}
+      - PRODUCT_ROOTS=${PRODUCT_ROOTS:-/data/products}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
       # Caso o watcher precise se comunicar diretamente com o backend:
       - BACKEND_URL=http://backend:8000
     volumes:

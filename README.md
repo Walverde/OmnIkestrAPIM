@@ -3,25 +3,24 @@ AI-powered autonomous PIM &amp; e-commerce orchestrator (NAS Watcher, AI Vision,
 
 ## Local development
 
-For a single Windows startup flow, run the launcher from the repository root:
+For the default Linux / NAS setup, start the stack from the repository root:
 
-```powershell
-.\start-local.cmd
-```
-
-This command starts the Docker Compose stack and launches the native Windows folder selector automatically. It also opens the settings page in the browser after startup. If you prefer to run the pieces manually, use:
-
-```powershell
+```bash
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-And in a separate PowerShell window:
+The backend and watcher read the product roots from environment configuration. Set `PRODUCT_ROOTS` to a comma-separated list of directories, or keep the default single-root setup with `PRODUCTS_ROOT=/data/products`. The legacy Windows helper remains available as an optional tool, but it is not required for the default flow.
 
-```powershell
-powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\tools\windows_folder_picker.ps1
+Example environment values:
+
+```bash
+export PRODUCT_ROOTS=/data/products,/mnt/nas/products
+export WATCH_DIRS=/data/products,/mnt/nas/products
+export PUID=1000
+export PGID=1000
 ```
 
-Keep that window open, then visit [http://localhost:8000/settings](http://localhost:8000/settings). Choose a folder and apply it; the helper saves `PRODUCTS_DIR` in the ignored root `.env` file and recreates the backend and watcher containers. The Docker volume is mounted read-only in the backend and writable in the watcher.
+After startup, visit [http://localhost:8000/settings](http://localhost:8000/settings) to review the indexed catalog. The Docker volume is mounted read-only in the backend and writable in the watcher.
 
 The API indexes product folders and their files in PostgreSQL. Available routes include:
 

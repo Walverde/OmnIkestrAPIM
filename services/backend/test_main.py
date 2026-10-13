@@ -19,6 +19,7 @@ from main import (
     ProductRecord,
     _scan_products,
     _sync_product_catalog,
+    _sync_product_catalog_for_roots,
     _sync_product_for_event,
     _product_directory_for_path,
     _write_manifest_atomic,
@@ -198,6 +199,31 @@ def test_sync_product_catalog_persists_and_removes_products(tmp_path):
         product_dir.rmdir()
         _sync_product_catalog(session, tmp_path)
         assert session.scalar(select(ProductRecord)) is None
+
+    database.dispose()
+
+
+def test_sync_product_catalog_handles_multiple_roots(tmp_path):
+    database = create_engine(f"sqlite:///{tmp_path / 'multi_root.db'}")
+    Base.metadata.create_all(database)
+    root_a = tmp_path / "root_a"
+    root_b = tmp_path / "root_b"
+    root_a.mkdir()
+    root_b.mkdir()
+    first_product = root_a / "Alpha"
+    second_product = root_b / "Beta"
+    first_product.mkdir()
+    second_product.mkdir()
+    (first_product / "product.yaml").write_text("name: Alpha\n", encoding="utf-8")
+    (second_product / "product.yaml").write_text("name: Beta\n", encoding="utf-8")
+
+    with Session(database) as session:
+        products = _sync_product_catalog_for_roots(session, (root_a, root_b))
+
+    assert {product.name for product in products} == {"Alpha", "Beta"}
+    with Session(database) as session:
+        stored = session.scalars(select(ProductRecord).order_by(ProductRecord.path)).all()
+        assert {record.name for record in stored} == {"Alpha", "Beta"}
 
     database.dispose()
 

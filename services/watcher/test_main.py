@@ -59,6 +59,66 @@ class DebouncedProductNotifierTests(unittest.TestCase):
 
         self.assertEqual(self.post.call_args.kwargs["json"]["event"], "modified")
 
+    def test_reserved_archives_and_default_patterns_are_ignored(self):
+        handler = ProductFolderHandler(self.notifier)
+        ignored_paths = (
+            self.watch_directory / "Chair" / "_arquivos" / "originais" / "source.psd",
+            self.watch_directory / "Chair" / "~$draft.tmp",
+            self.watch_directory / "Chair" / "Thumbs.db",
+        )
+
+        for path in ignored_paths:
+            handler.on_created(SimpleNamespace(src_path=str(path), is_directory=False))
+
+        self.assertEqual(self.notifier._pending, {})
+        self.post.assert_not_called()
+
+    def test_custom_ignore_patterns_are_applied(self):
+        handler = ProductFolderHandler(self.notifier, ignore_patterns=("*.raw",))
+        raw_file = self.watch_directory / "Chair" / "original.raw"
+
+        handler.on_created(SimpleNamespace(src_path=str(raw_file), is_directory=False))
+
+        self.assertEqual(self.notifier._pending, {})
+
+    def test_move_from_indexed_path_into_ignored_path_becomes_delete(self):
+        handler = ProductFolderHandler(self.notifier)
+        source = self.watch_directory / "Chair" / "cover.jpg"
+        destination = self.watch_directory / "Chair" / "_arquivos" / "cover.jpg"
+
+        handler.on_moved(
+            SimpleNamespace(
+                src_path=str(source),
+                dest_path=str(destination),
+                is_directory=False,
+            )
+        )
+        self.notifier.flush_all()
+
+        payload = self.post.call_args.kwargs["json"]
+        self.assertEqual(payload["event"], "deleted")
+        self.assertEqual(payload["path"], str(source))
+        self.assertIsNone(payload["destination_path"])
+
+    def test_move_from_ignored_path_into_indexed_path_becomes_create(self):
+        handler = ProductFolderHandler(self.notifier)
+        source = self.watch_directory / "Chair" / "_arquivos" / "cover.jpg"
+        destination = self.watch_directory / "Chair" / "cover.jpg"
+
+        handler.on_moved(
+            SimpleNamespace(
+                src_path=str(source),
+                dest_path=str(destination),
+                is_directory=False,
+            )
+        )
+        self.notifier.flush_all()
+
+        payload = self.post.call_args.kwargs["json"]
+        self.assertEqual(payload["event"], "created")
+        self.assertEqual(payload["path"], str(destination))
+        self.assertIsNone(payload["destination_path"])
+
     def test_nested_product_events_resolve_to_nearest_product(self):
         product_dir = self.watch_directory / "Eletrônicos" / "Notebooks" / "ThinkPad"
         reserved_images = product_dir / "images"

@@ -373,6 +373,25 @@ def test_local_picker_token_is_not_cacheable(monkeypatch):
     assert response.headers["cache-control"] == "no-store"
 
 
+def test_product_roots_can_be_updated_in_memory(monkeypatch):
+    previous_roots = list(__import__("main").PRODUCT_ROOTS)
+    monkeypatch.setattr("main.PRODUCT_ROOTS", tuple(previous_roots))
+    monkeypatch.setattr("main.PRODUCTS_ROOT", previous_roots[0])
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/config/product-roots",
+        json={"roots": ["/tmp/omnikestr-products"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["roots"] == ["/tmp/omnikestr-products"]
+    assert __import__("main").PRODUCTS_ROOT == Path("/tmp/omnikestr-products")
+
+    monkeypatch.setattr("main.PRODUCT_ROOTS", tuple(previous_roots))
+    monkeypatch.setattr("main.PRODUCTS_ROOT", previous_roots[0])
+
+
 @pytest.fixture
 def product_api(tmp_path, monkeypatch):
     database = create_engine(f"sqlite:///{tmp_path / 'api.db'}")

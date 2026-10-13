@@ -264,29 +264,30 @@
     <section class="workspace" aria-label="Configuração da pasta de anúncios">
       <div class="browser">
         <div class="browser-heading">
-          <h2>Pasta no Windows</h2>
-          <span id="helper-status" class="volume-label">Conferindo auxiliar...</span>
+          <h2>Raiz de produtos</h2>
+          <span id="helper-status" class="volume-label">Configuração por ambiente</span>
         </div>
         <div class="pathbar" aria-live="polite">
-          <span class="path-symbol" aria-hidden="true">D:</span>
-          <span id="current-path">Nenhuma pasta carregada</span>
+          <span class="path-symbol" aria-hidden="true">/</span>
+          <span id="current-path">Carregando...</span>
         </div>
-        <div id="folder-list" class="folder-list" aria-live="polite">
-          <div class="loading-state">Aguardando o seletor do Windows.</div>
+        <div class="folder-list" aria-live="polite">
+          <label for="manual-root-input" class="selection-label">Pasta do catálogo</label>
+          <input id="manual-root-input" type="text" placeholder="/data/products" style="width: 100%; box-sizing: border-box; padding: 0.75rem; margin-top: 0.5rem; border: 1px solid #d5d8de; border-radius: 10px; font-size: 1rem;" />
         </div>
         <div class="browser-actions">
-          <button id="pick-button" class="secondary" type="button">Selecionar pasta...</button>
-          <button id="apply-button" class="primary" type="button" disabled>Aplicar e reiniciar</button>
+          <button id="apply-button" class="primary" type="button">Aplicar pasta</button>
+          <button id="scan-button" class="secondary" type="button">Reindexar catálogo</button>
         </div>
       </div>
 
       <aside class="selection">
         <p class="eyebrow">Pasta ativa</p>
         <h2>Anúncios serão lidos daqui</h2>
-        <p class="selection-label">Configuração salva</p>
+        <p class="selection-label">Configuração atual</p>
         <div id="selected-path" class="selected-path">Carregando...</div>
         <div class="selection-rule"></div>
-        <p class="selection-note">Aplicar a escolha atualiza o volume do Docker e recria o backend e o watcher. A API pode ficar indisponível por alguns segundos.</p>
+        <p class="selection-note">O fluxo principal é baseado em variáveis de ambiente e montagem de volume. O seletor do Windows ficou opcional e não é necessário para o uso em Linux/NAS.</p>
         <p id="status" class="status" role="status"></p>
       </aside>
     </section>
@@ -295,132 +296,84 @@
   <script>
     const currentPath = document.querySelector("#current-path");
     const selectedPath = document.querySelector("#selected-path");
-    const folderList = document.querySelector("#folder-list");
     const helperStatus = document.querySelector("#helper-status");
-    const pickButton = document.querySelector("#pick-button");
+    const manualRootInput = document.querySelector("#manual-root-input");
     const applyButton = document.querySelector("#apply-button");
+    const scanButton = document.querySelector("#scan-button");
     const status = document.querySelector("#status");
-
-    const pickerUrl = "http://127.0.0.1:8765";
-    let selectedWindowsPath = "";
-    let pickerToken = "";
-
-    async function requestJson(url, options = {}) {
-      const headers = new Headers(options.headers || {});
-      if (url.startsWith(pickerUrl) && pickerToken) {
-        headers.set("X-Picker-Token", pickerToken);
-      }
-      const response = await fetch(url, { ...options, headers });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.detail || "Não foi possível concluir a operação.");
-      return body;
-    }
 
     function setMessage(message, isError = false) {
       status.textContent = message;
       status.dataset.error = String(isError);
     }
 
-    async function ensureHelperReady() {
-      try {
-        await requestJson(`${pickerUrl}/status`);
-        return true;
-      } catch (error) {
-        helperStatus.textContent = "Auxiliar indisponível";
-        setMessage("O seletor do Windows não respondeu. Reinicie o helper ou abra o projeto novamente.", true);
-        return false;
-      }
-    }
-
-    async function openFolderPicker(autoTrigger = false) {
-      const isReady = await ensureHelperReady();
-      if (!isReady) {
-        return;
-      }
-
-      pickButton.disabled = true;
-      pickButton.textContent = "Abrindo seletor...";
-
-      try {
-        const data = await requestJson(`${pickerUrl}/pick`, {
-          method: "POST",
-        });
-
-        if (data.cancelled) {
-          if (autoTrigger) {
-            setMessage("Seleção cancelada. Você pode reiniciar o processo a qualquer momento.");
-          }
-          return;
-        }
-
-        selectedWindowsPath = data.path;
-        currentPath.textContent = selectedWindowsPath;
-        folderList.innerHTML = '<div class="empty-state">Pasta selecionada. A configuração ativa só muda depois de aplicar.</div>';
-        applyButton.disabled = false;
-        setMessage("Confirme a reinicialização para aplicar a nova pasta.");
-      } catch (error) {
-        setMessage(error.message, true);
-      } finally {
-        pickButton.disabled = false;
-        pickButton.textContent = "Selecionar pasta...";
-      }
+    async function requestJson(url, options = {}) {
+      const response = await fetch(url, { ...options, headers: options.headers || {} });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || "Não foi possível concluir a operação.");
+      return body;
     }
 
     async function initialize() {
       try {
-        const credentials = await requestJson("/api/local/picker-token");
-        pickerToken = credentials.token;
-        const settings = await requestJson(`${pickerUrl}/status`);
-        helperStatus.textContent = "Auxiliar conectado";
-        selectedPath.textContent = settings.products_dir;
-        currentPath.textContent = settings.products_dir;
-        folderList.innerHTML = '<div class="empty-state">Selecione qualquer pasta local ou unidade mapeada, como D:\\Produtos.</div>';
-        pickButton.disabled = false;
-
-        const pathIsConfigured = !!settings.products_dir && settings.products_dir.trim() !== "" && settings.products_dir !== "Nenhuma pasta carregada";
-        if (!pathIsConfigured) {
-          await openFolderPicker(true);
-        }
+        const config = await requestJson("/api/config/product-roots");
+        const root = (config.roots && config.roots[0]) || config.default_root || "/data/products";
+        helperStatus.textContent = config.source === "environment" ? "Configuração por ambiente" : "Configuração em runtime";
+        currentPath.textContent = root;
+        selectedPath.textContent = root;
+        manualRootInput.value = root;
+        setMessage("Configuração carregada.");
       } catch (error) {
-        helperStatus.textContent = "Auxiliar desconectado";
-        selectedPath.textContent = "Não foi possível consultar o Windows";
-        folderList.replaceChildren();
-        const message = document.createElement("div");
-        message.className = "error-state";
-        message.textContent = "Inicie tools\\windows_folder_picker.ps1 em um PowerShell separado e recarregue esta página.";
-        folderList.append(message);
+        helperStatus.textContent = "Configuração indisponível";
+        selectedPath.textContent = "Não foi possível carregar a raiz";
+        setMessage(error.message, true);
       }
     }
 
-    pickButton.addEventListener("click", () => {
-      openFolderPicker(false);
-    });
-
     applyButton.addEventListener("click", async () => {
-      if (!selectedWindowsPath) return;
-      const confirmed = window.confirm(
-        `Aplicar ${selectedWindowsPath} e recriar o backend e o watcher? A API ficará indisponível por alguns segundos.`,
-      );
-      if (!confirmed) return;
+      const root = manualRootInput.value.trim();
+      if (!root) {
+        setMessage("Informe uma pasta válida para o catálogo.", true);
+        return;
+      }
 
       applyButton.disabled = true;
       applyButton.textContent = "Aplicando...";
-      setMessage("Atualizando o volume e recriando os serviços...");
+      setMessage("Atualizando a raiz dos produtos...");
+
       try {
-        const data = await requestJson(`${pickerUrl}/apply`, {
+        const data = await requestJson("/api/config/product-roots", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ path: selectedWindowsPath }),
+          body: JSON.stringify({ roots: [root] }),
         });
-        selectedPath.textContent = data.products_dir;
-        currentPath.textContent = data.products_dir;
-        selectedWindowsPath = "";
-        setMessage("Pasta aplicada. Os serviços foram recriados.");
+
+        const activeRoot = (data.roots && data.roots[0]) || data.default_root || root;
+        currentPath.textContent = activeRoot;
+        selectedPath.textContent = activeRoot;
+        manualRootInput.value = activeRoot;
+        setMessage("Raiz aplicada com sucesso.");
       } catch (error) {
         setMessage(error.message, true);
       } finally {
-        applyButton.disabled = true;
-        applyButton.textContent = "Aplicar e reiniciar";
+        applyButton.disabled = false;
+        applyButton.textContent = "Aplicar pasta";
+      }
+    });
+
+    scanButton.addEventListener("click", async () => {
+      scanButton.disabled = true;
+      scanButton.textContent = "Reindexando...";
+      setMessage("Reindexando o catálogo...");
+
+      try {
+        const data = await requestJson("/api/products/scan", { method: "POST" });
+        setMessage(`Catálogo reindexado com ${data.products?.length ?? 0} produtos.`);
+      } catch (error) {
+        setMessage(error.message, true);
+      } finally {
+        scanButton.disabled = false;
+        scanButton.textContent = "Reindexar catálogo";
       }
     });
 

@@ -1,7 +1,7 @@
 # OmniKestra (OmnIkestrAPIM) — Roadmap Oficial
 
-**Última atualização:** 07/10/2026  
-**Status geral do projeto:** Em desenvolvimento ativo — Etapa B em andamento  
+**Última atualização:** 13/10/2026  
+**Status geral do projeto:** Em desenvolvimento ativo — Etapa B em avanço com validação Linux concluída em código; validação final em host Docker/TrueNAS bloqueada por permissão do daemon  
 **Documento de referência:** Este é o roadmap único e oficial. Todas as decisões, tarefas e atualizações de status devem ser registradas aqui.
 
 ---
@@ -59,8 +59,8 @@ O **OmnIkestrAPIM** é uma ferramenta *self-hosted* de gestão de inventário e 
 
 **Direção adotada (recomendada):**
 
-- Pasta reservada **dentro de cada anúncio**, ignorada pelo watcher: `_arquivos/`  
-  Contendo subpastas: `originais/`, `psd/`, `documentos/`.
+- Qualquer pasta cujo nome comece com `_` será ignorada pelo watcher. Isso inclui a convenção reservada `_arquivos/` e demais diretórios auxiliares como `_draft`, `_cache` e similares.
+- Dentro de uma pasta reservada, pode existir subestrutura como `originais/`, `psd/`, `documentos/`.
 - Regras de ignore **configuráveis**:
   - Prefixo `_`
   - Padrões: `*.psd`, `~$*`, `*.tmp`, `Thumbs.db`, `.DS_Store`
@@ -100,24 +100,25 @@ O **OmnIkestrAPIM** é uma ferramenta *self-hosted* de gestão de inventário e 
 **Objetivo:** Deixar o app pronto para rodar em TrueNAS e otimizar I/O em discos de rede.
 
 #### B.1 Configuração de Raiz por Volume/Ambiente
-- [ ] Remover dependência do `windows_folder_picker.ps1` no fluxo principal
-- [ ] Definir raízes de anúncios por variáveis de ambiente (`PRODUCT_ROOTS` / `/data/products`) e volumes montados
+- [x] Remover dependência do `windows_folder_picker.ps1` no fluxo principal (concluído em 13/10/2026 em código e com testes)
+- [x] Definir raízes de anúncios por variáveis de ambiente (`PRODUCT_ROOTS` / `/data/products`) e volumes montados
 - [ ] Implementar navegador de diretórios restrito por *allowlist* na Web UI (opcional, mas recomendado)
 
 #### B.2 Filtros e Regras de Exclusão no Watcher
-- [ ] Ignorar pasta reservada `_arquivos/` (com `originais/`, `psd/`, `documentos/`)
-- [ ] Aplicar padrões configuráveis de exclusão: `*.psd`, `~$*`, `*.tmp`, `Thumbs.db`, `.DS_Store`
-- [ ] Tornar as regras de ignore configuráveis (arquivo de configuração ou variáveis de ambiente)
+- [x] Ignorar qualquer pasta cujo nome comece com `_` (incluindo `_arquivos/`, `_draft`, `_cache` e similares)
+- [x] Aplicar padrões configuráveis de exclusão: `*.psd`, `~$*`, `*.tmp`, `Thumbs.db`, `.DS_Store`
+- [x] Tornar as regras de ignore configuráveis (arquivo de configuração ou variáveis de ambiente)
 
 #### B.3 Ajustes de Infraestrutura para NAS
-- [ ] Intervalo de reconciliação configurável (SMB/NFS)
-- [ ] Botão / endpoint de reindexação manual sob demanda
-- [ ] Configuração de permissões PUID/PGID no Docker para escrita atômica
-- [ ] Tratar casos de borda: renomeação de arquivos/pastas, debounce e eventos perdidos
-- [ ] Suporte a múltiplas raízes de produtos
+- [x] Intervalo de reconciliação configurável (SMB/NFS) em estrutura do watcher e env vars
+- [x] Botão / endpoint de reindexação manual sob demanda
+- [x] Configuração de permissões PUID/PGID no Docker para escrita atômica
+- [x] Tratar casos de borda: renomeação de arquivos/pastas, debounce e eventos perdidos
+- [x] Suporte a múltiplas raízes de produtos
 
 **Critério de aceite da Etapa B:**  
-Aplicação sobe em TrueNAS apenas com volumes e variáveis de ambiente, sem qualquer dependência do seletor Windows, com regras de ignore ativas e reindexação manual funcional.
+Aplicação sobe em TrueNAS apenas com volumes e variáveis de ambiente, sem qualquer dependência do seletor Windows, com regras de ignore ativas e reindexação manual funcional.  
+Status atual: critério funcional validado em testes Linux e em execução local; validação final em host Docker/TrueNAS ainda depende de acesso ao daemon do Docker na máquina alvo.
 
 ---
 
@@ -217,16 +218,13 @@ Estas decisões devem ser fechadas preferencialmente ainda na Etapa B:
 
 ## 7. Próximos Passos Imediatos (Ordem de Execução)
 
-1. **Fechar decisões de estrutura de pastas** (seção 5 — itens 1 e 2).
-2. Escrever ADR cobrindo:
-   - Raiz via configuração/volume
-   - Regras de ignore do watcher
-   - Identificação por UUID + categoria opcional
-3. Remover a dependência do seletor Windows do fluxo principal.
-4. Implementar regras de exclusão (`ignore_patterns`) no Watcher.
-5. Criar endpoint/botão de reindexação manual.
-6. Configurar PUID/PGID e testar no TrueNAS.
-7. Após conclusão da Etapa B → revisar e fechar o escopo da Fase 1.
+1. **Concluir validação final em host Linux/TrueNAS com acesso liberado ao Docker daemon**.
+2. Verificar a stack completa com `docker compose up -d --build` no ambiente alvo.
+3. Validar a primeira execução real lendo um volume montado de produtos com pastas `_...` e arquivos auxiliares.
+4. Revisar o escopo da Fase 1 e registrar o fechamento oficial da Etapa B.
+5. Após conclusão da Etapa B → revisar e fechar o escopo da Fase 1.
+
+> Observação: os itens de implementação desta etapa já foram concluídos em código e validados por testes; o único bloqueio restante é a validação de infraestrutura no host de execução real.
 
 ---
 

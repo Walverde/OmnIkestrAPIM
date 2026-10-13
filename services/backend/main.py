@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, List, Literal
+from typing import Any, List, Literal, Sequence
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -30,6 +30,7 @@ from sqlalchemy import (
     create_engine,
     delete,
     func,
+    inspect,
     select,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -169,6 +170,25 @@ def _resolve_product_roots() -> tuple[Path, ...]:
     return tuple(resolved_roots)
 
 
+def _apply_product_roots(roots: Sequence[str | Path]) -> tuple[Path, ...]:
+    normalized_roots: list[Path] = []
+    seen: set[str] = set()
+    for raw_root in roots:
+        if not str(raw_root).strip():
+            continue
+        root = Path(str(raw_root)).expanduser().resolve()
+        key = str(root)
+        if key not in seen:
+            seen.add(key)
+            normalized_roots.append(root)
+    if not normalized_roots:
+        normalized_roots = list(_resolve_product_roots())
+    global PRODUCT_ROOTS, PRODUCTS_ROOT
+    PRODUCT_ROOTS = tuple(normalized_roots)
+    PRODUCTS_ROOT = PRODUCT_ROOTS[0]
+    return PRODUCT_ROOTS
+
+
 PRODUCT_ROOTS = _resolve_product_roots()
 PRODUCTS_ROOT = PRODUCT_ROOTS[0]
 DEFAULT_WORKSPACE_ID = "default"
@@ -221,6 +241,10 @@ class ProductFile(BaseModel):
     extension: str | None = None
 
 
+class ProductRootConfig(BaseModel):
+    roots: List[str] = Field(default_factory=list)
+
+
 class ProductSummary(BaseModel):
     id: str | None = None
     name: str
@@ -253,6 +277,8 @@ def get_db():
 
 
 def _ensure_workspace(db: Session, workspace_id: str = DEFAULT_WORKSPACE_ID) -> None:
+    if not inspect(db.bind).has_table("workspaces"):
+        Base.metadata.create_all(bind=db.bind)
     if db.get(WorkspaceRecord, workspace_id) is None:
         db.add(WorkspaceRecord(id=workspace_id, name=workspace_id))
         db.flush()
@@ -611,7 +637,9 @@ def _upsert_product_record(
     return record
 
 
-def _root_for_path(path: str | Path, roots: tuple[Path, ...] = PRODUCT_ROOTS) -> Path | None:
+def _root_for_path(path: str | Path | None, roots: tuple[Path, ...] = PRODUCT_ROOTS) -> Path | None:
+    if path is None:
+        return None
     candidate = Path(path).expanduser().resolve()
     for root in roots:
         try:
@@ -840,6 +868,29 @@ def dashboard_page():
 @app.get("/settings", response_class=FileResponse)
 def settings_page():
     return FileResponse(SETTINGS_PAGE, media_type="text/html")
+
+
+@app.get("/api/config/product-roots")
+def get_product_roots():
+    return {
+        "roots": [str(root) for root in PRODUCT_ROOTS],
+        "default_root": str(PRODUCTS_ROOT),
+        "source": "environment" if os.getenv("PRODUCT_ROOTS") or os.getenv("PRODUCTS_ROOT") else "runtime",
+    }
+
+
+@app.post("/api/config/product-roots")
+def set_product_roots(config: ProductRootConfig, db: Session = Depends(get_db)):
+    if not config.roots:
+        raise HTTPException(status_code=400, detail="Informe pelo menos uma pasta de produtos.")
+
+    updated_roots = _apply_product_roots(config.roots)
+    _sync_product_catalog_for_roots(db, updated_roots, DEFAULT_WORKSPACE_ID)
+    db.commit()
+    return {
+        "roots": [str(root) for root in updated_roots],
+        "default_root": str(PRODUCTS_ROOT),
+    }
 
 
 @app.get("/products", response_class=FileResponse)

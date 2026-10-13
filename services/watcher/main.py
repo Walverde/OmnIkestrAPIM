@@ -224,12 +224,13 @@ class ProductFolderHandler(FileSystemEventHandler):
         if root is None:
             return True
         relative_path = candidate.relative_to(root)
+        path_parts = tuple(part for part in relative_path.parts if part)
 
-        if any(part.casefold() == "_arquivos" for part in relative_path.parts):
+        if any(part.startswith("_") for part in path_parts):
             return True
         return any(
             fnmatch.fnmatchcase(relative_path.as_posix(), pattern)
-            or any(fnmatch.fnmatchcase(part, pattern) for part in relative_path.parts)
+            or any(fnmatch.fnmatchcase(part, pattern) for part in path_parts)
             for pattern in self.ignore_patterns
         )
 

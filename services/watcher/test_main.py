@@ -81,6 +81,20 @@ class DebouncedProductNotifierTests(unittest.TestCase):
 
         self.assertEqual(self.notifier._pending, {})
 
+    def test_underscore_prefixed_directories_are_ignored(self):
+        handler = ProductFolderHandler(self.notifier)
+        ignored_paths = (
+            self.watch_directory / "Chair" / "_draft" / "cover.jpg",
+            self.watch_directory / "Chair" / "_arquivos" / "originais" / "source.psd",
+            self.watch_directory / "Chair" / "_cache",
+        )
+
+        for path in ignored_paths:
+            handler.on_created(SimpleNamespace(src_path=str(path), is_directory=path.is_dir()))
+
+        self.assertEqual(self.notifier._pending, {})
+        self.post.assert_not_called()
+
     def test_move_from_indexed_path_into_ignored_path_becomes_delete(self):
         handler = ProductFolderHandler(self.notifier)
         source = self.watch_directory / "Chair" / "cover.jpg"

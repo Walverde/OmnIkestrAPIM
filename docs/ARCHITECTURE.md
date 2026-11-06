@@ -1183,18 +1183,11 @@ As development progresses, architectural decisions may change based on:
 * marketplace requirements;
 * infrastructure limitations.
 
-Significant architectural changes should be documented in the Git history and, when appropriate, in separate Architecture Decision Records (ADRs).
-
-Future ADRs should be stored under:
-
-```text
-docs/
-└── adr/
-    ├── 0001-initial-architecture.md
-    ├── 0002-database-selection.md
-    ├── 0003-storage-strategy.md
-    └── ...
-```
+Significant architectural decisions, their dates, and their project status are
+maintained in the single planning source, [`RoadMap_Consolidado.md`](../RoadMap_Consolidado.md),
+Section 3. This document remains a technical architecture reference; it does
+not create a separate decision or planning record. Implementation changes
+should also be captured in Git history.
 
 ---
 

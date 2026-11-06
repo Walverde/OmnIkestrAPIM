@@ -167,6 +167,45 @@ def test_scan_products_seeds_stable_v1_manifest(tmp_path):
     assert any(file.name == "product.yaml" for file in first_scan.files)
 
 
+def test_scan_products_migrates_unversioned_manifest_and_preserves_unknown_fields(tmp_path):
+    product_dir = tmp_path / "Legacy manifest"
+    product_dir.mkdir()
+    manifest_path = product_dir / "product.yaml"
+    manifest_path.write_text(
+        "id: 0197f381-7c63-7a1d-a8b1-4e08b8472401\n"
+        "title: Legacy manifest\n"
+        "custom_note: keep this value\n",
+        encoding="utf-8",
+    )
+
+    product = _scan_products(tmp_path)[0]
+    migrated_manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+
+    assert product.manifest_error is None
+    assert product.id == "0197f381-7c63-7a1d-a8b1-4e08b8472401"
+    assert migrated_manifest["schema_version"] == 1
+    assert migrated_manifest["custom_note"] == "keep this value"
+
+
+def test_scan_products_does_not_rewrite_unsupported_future_schema(tmp_path):
+    product_dir = tmp_path / "Future manifest"
+    product_dir.mkdir()
+    manifest_path = product_dir / "product.yaml"
+    manifest_path.write_text(
+        "schema_version: 99\n"
+        "id: 0197f381-7c63-7a1d-a8b1-4e08b8472401\n"
+        "title: Future manifest\n",
+        encoding="utf-8",
+    )
+    original_manifest = manifest_path.read_bytes()
+
+    product = _scan_products(tmp_path)[0]
+
+    assert product.id == "0197f381-7c63-7a1d-a8b1-4e08b8472401"
+    assert "Versão de schema 99 não é suportada" in product.manifest_error
+    assert manifest_path.read_bytes() == original_manifest
+
+
 def test_scan_products_reports_invalid_manifest_fields(tmp_path):
     product_dir = tmp_path / "Invalid product"
     product_dir.mkdir()

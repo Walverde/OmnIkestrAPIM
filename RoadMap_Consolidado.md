@@ -1,16 +1,18 @@
 # OmniKestra (OmnIkestrAPIM) — Roadmap Oficial
 
-**Última atualização:** 05/11/2026
+**Última atualização:** 06/11/2026
 
-**Status geral do projeto:** Em desenvolvimento ativo — Etapa B em avanço; lógica interna e endpoints do backend modularizados, com 20 testes aprovados localmente. A validação final de paths em host Docker/TrueNAS ainda depende de acesso ao daemon do Docker
+**Status geral do projeto:** Em desenvolvimento ativo — Etapa B tem implementação e testes locais; falta validar no host Linux/TrueNAS. Etapa C em andamento com a base de migrações de `product.yaml`.
 
-**Documento de referência:** Este é o roadmap único e oficial. Todas as decisões, tarefas e atualizações de status devem ser registradas aqui.
+**Fonte única de planejamento e decisões:** este documento consolida o roadmap oficial anterior, os rascunhos de roadmap e as decisões dos ADRs 0001 e 0002. Novas tarefas, status e decisões devem ser mantidos somente aqui. `docs/ARCHITECTURE.md` continua como referência descritiva de arquitetura, sem substituir este registro.
 
 ---
 
 ## 1. Visão e Princípios Fundamentais
 
 O **OmnIkestrAPIM** é uma ferramenta *self-hosted* de gestão de inventário e anúncios em marketplaces, orientada a autonomia e inteligência artificial.
+
+Este roadmap controla o escopo, prioridades, decisões e progresso. A implementação existente deve ser verificada no código e nos testes; os itens marcados como concluídos registram trabalho validado, enquanto decisões em aberto permanecem explicitamente na seção 5.
 
 **Princípios que orientam todas as decisões:**
 
@@ -28,53 +30,54 @@ O **OmnIkestrAPIM** é uma ferramenta *self-hosted* de gestão de inventário e 
 
 ## 2. Avaliação Técnica do Código Atual
 
-### Pontos Fortes (já implementados)
+### Capacidade implementada
 
-- **Escrita atômica** do `product.yaml` (arquivo temporário + `replace`) — previne corrupção.
-- **Preservação de campos não mapeados** no YAML (carga/dump direto).
-- **Watcher resiliente**: debounce de 1,5 s + reconciliação periódica a cada 15 minutos.
-- **Identidade por UUID**: produto identificado pelo UUID do YAML, independente da pasta (`folder_group`).
-- **Multi-tenancy nativo**: isolamento por workspace já presente na API e nas migrações (`WorkspaceProductCatalog`).
+- Backend FastAPI modularizado em banco, modelos, catálogo, mídia e routers por domínio; `main.py` permanece como ponto de entrada.
+- `product.yaml` é lido e gravado atomicamente; o catálogo PostgreSQL é um índice reconstruível. Edições preservam chaves YAML desconhecidas.
+- Catálogo isolado por workspace, identidade estável por UUID e suporte configurável a múltiplas raízes.
+- Watcher com debounce, regras de exclusão configuráveis, reindexação manual e reconciliação periódica.
+- Imagens podem ser entregues diretamente ou processadas como thumbnails WebP.
+- Testes locais mais recentes: 22 testes do backend aprovados em 06/11/2026.
 
-### Oportunidades de Melhoria (prioritárias)
+### Lacunas e verificações pendentes
 
-- Remover dependência do seletor nativo do Windows (`windows_folder_picker.ps1`).
-- Implementar filtros de exclusão no watcher (arquivos pesados e temporários).
-- Suporte nativo a múltiplas raízes de produtos.
-- Ajustes de permissões (PUID/PGID) e empacotamento para TrueNAS.
+- Validar a stack no host Linux/TrueNAS com volumes reais e permissões PUID/PGID; o daemon Docker do host alvo não estava disponível durante a validação local.
+- Confirmar no host Linux o comportamento de caminhos POSIX e eventos de watcher/reconciliação.
+- O navegador de diretórios com *allowlist* permanece opcional e não implementado.
+- Migrações de manifests para versões futuras ainda dependem da definição e aprovação de um schema v2.
 
 ---
 
-## 3. Decisões de Arquitetura Consolidadas
+## 3. Decisões Consolidadas
 
-### 3.1 Implantação no TrueNAS / Linux
+Decisões aceitas são registradas aqui com a data. A documentação antiga de ADR foi incorporada nesta seção e deixou de ser uma fonte independente.
 
-| Decisão | Status | Detalhe |
-|---------|--------|---------|
-| Raiz dos produtos via configuração/volume | Pendente | Variáveis de ambiente (`PRODUCT_ROOTS` ou similar) + volumes montados. |
-| Navegador de pastas na Web UI | Opcional | Restrito por *allowlist* aos pontos de montagem permitidos. |
-| Script Windows | Apenas dev | Fica apenas para desenvolvimento local. |
-| Watcher em SMB/NFS | Mitigado | Eventos não confiáveis → depender de reconciliação periódica configurável + botão de reindexação manual. |
-| Permissões | Pendente | Container deve rodar com UID/GID do dono do dataset (PUID/PGID). |
+### 3.1 Dados de produto e schema
 
-### 3.2 Estrutura de Pastas dos Anúncios
+- [x] `product.yaml` é a fonte de verdade; o banco de dados é índice operacional reconstruível. Atualizações de produto são gravadas no YAML por substituição atômica, preservando campos desconhecidos (concluído em 06/10/2026).
+- [x] Cada produto é identificado pelo UUID persistido no YAML; mudar a pasta não deve mudar sua identidade (concluído em 06/10/2026).
+- [x] Schema v1 exige `title`; inclui `schema_version`, `id` UUID, `sku`, `category`, `price`, `cost`, `condition`, `status`, `marketplaces` e `description`. Um produto inválido é reportado sem impedir a indexação de outras pastas (concluído em 06/10/2026).
+- [x] Manifests sem `schema_version` são tratados como schema 0 e migrados para v1, preservando campos desconhecidos. Versões futuras não suportadas são reportadas sem alteração do arquivo (concluído em 06/11/2026).
+- [x] Cada nova versão do schema deverá ter migração explícita e sequencial a partir de todas as versões anteriores; não inferir nem descartar campos desconhecidos (concluído em 06/11/2026).
 
-**Direção adotada (recomendada):**
+### 3.2 Workspace e catálogo
 
-- Qualquer pasta cujo nome comece com `_` será ignorada pelo watcher. Isso inclui a convenção reservada `_arquivos/` e demais diretórios auxiliares como `_draft`, `_cache` e similares.
-- Dentro de uma pasta reservada, pode existir subestrutura como `originais/`, `psd/`, `documentos/`.
-- Regras de ignore **configuráveis**:
-  - Prefixo `_`
-  - Padrões: `*.psd`, `~$*`, `*.tmp`, `Thumbs.db`, `.DS_Store`
-- O sistema indexa **apenas** o `product.yaml` e as fotos finais do anúncio.
-- Alternativa (não prioritária): árvore paralela em dataset separado (só se originais forem extremamente pesados).
+- [x] Produtos e eventos pertencem a um workspace; a instalação inicial usa `default`. UUIDs e caminhos são únicos dentro do workspace (concluído em 06/10/2026).
+- [x] Dados existentes e eventos recebidos durante a migração inicial são atribuídos ao workspace `default`; eventos são consultados por workspace, paginados e sujeitos a limites de retenção por quantidade e idade (concluído em 06/10/2026).
+- [x] A configuração de raízes é global à instalação; um `workspace_id` não seleciona implicitamente outra raiz. Alterar essa regra exige uma decisão e mudança explícitas (concluído em 06/10/2026).
 
-### 3.3 Categorias e Organização
+### 3.3 Deploy e filesystem
 
-- Produto identificado **sempre** pelo UUID do `product.yaml`.
-- Categoria é campo **opcional** (pode ser inferida da pasta pai).
-- Mover produto de pasta **não quebra** a identidade.
-- Decisão final (subpastas vs raiz única) ainda aberta → ver seção 5.
+- [x] Linux/TrueNAS é o destino principal; roots são configuradas por variáveis de ambiente e volumes. O seletor PowerShell é ferramenta opcional de desenvolvimento, não requisito do fluxo padrão (concluído em 13/10/2026).
+- [x] Raízes de produto podem ser configuradas via `PRODUCT_ROOTS`, mantendo `PRODUCTS_ROOT=/data/products` como compatibilidade/default (concluído em 13/10/2026).
+- [x] Eventos SMB/NFS não são considerados confiáveis: combinar watcher com reconciliação configurável e reindexação manual (concluído em 13/10/2026).
+- [x] O container deve usar permissões compatíveis com o dono do dataset (PUID/PGID) para permitir escrita atômica (concluído em 13/10/2026).
+- [x] Pastas cujo nome começa com `_` são reservadas e ignoradas pelo watcher; padrões temporários/auxiliares também são configuráveis. A convenção comporta `_arquivos/`, `_draft/` e `_cache/` (concluído em 13/10/2026).
+- [x] Categorias em subpastas são representadas por `folder_group`; categoria no YAML é opcional, e sugestão derivada da pasta não sobrescreve o YAML (concluído em 13/10/2026).
+
+### 3.4 Organização do backend
+
+- [x] Separar API, modelos, acesso ao banco, catálogo e mídia por domínio, mantendo `main.py` como ponto de entrada compatível com execução, testes e migrações existentes (concluído em 05/11/2026).
 
 ---
 
@@ -87,13 +90,13 @@ O **OmnIkestrAPIM** é uma ferramenta *self-hosted* de gestão de inventário e 
 ### Etapa A — Fundação e Core
 **Status:** Concluída (06/10/2026)
 
-- [x] Schema v1 do `product.yaml` com UUID persistente e escrita atômica
-- [x] Serviço de Watcher com debounce (1,5 s) e reconciliação automática (15 min)
-- [x] Catalogação e isolamento de dados por Workspace
-- [x] Mapeamento de categorias via subpastas (`folder_group`)
-- [x] Scripts de execução local para Windows (`start-local.cmd` / `start-local.ps1`)
-- [x] Migrações com Alembic
-- [x] Token no helper do Windows
+- [x] Schema v1 do `product.yaml` com UUID persistente e escrita atômica (concluído em 06/10/2026)
+- [x] Serviço de Watcher com debounce (1,5 s) e reconciliação automática (15 min) (concluído em 06/10/2026)
+- [x] Catalogação e isolamento de dados por Workspace (concluído em 06/10/2026)
+- [x] Mapeamento de categorias via subpastas (`folder_group`) (concluído em 06/10/2026)
+- [x] Scripts de execução local para Windows (`start-local.cmd` / `start-local.ps1`) (concluído em 06/10/2026)
+- [x] Migrações com Alembic (concluído em 06/10/2026)
+- [x] Token no helper do Windows (concluído em 06/10/2026)
 
 ---
 
@@ -102,41 +105,41 @@ O **OmnIkestrAPIM** é uma ferramenta *self-hosted* de gestão de inventário e 
 **Objetivo:** Deixar o app pronto para rodar em TrueNAS e otimizar I/O em discos de rede.
 
 #### B.1 Configuração de Raiz por Volume/Ambiente
-- [x] Remover dependência do `windows_folder_picker.ps1` no fluxo principal (concluído em 13/10/2026 em código e com testes)
-- [x] Definir raízes de anúncios por variáveis de ambiente (`PRODUCT_ROOTS` / `/data/products`) e volumes montados
-- [-] Normalizar caminhos de catálogo e arquivos para representação POSIX-safe em runtime Linux/NAS, preservando a identidade do produto ao mover ou renomear diretórios (em progresso desde 05/11/2026)
+- [x] Remover dependência do `windows_folder_picker.ps1` no fluxo principal (concluído em 13/10/2026)
+- [x] Definir raízes de anúncios por variáveis de ambiente (`PRODUCT_ROOTS` / `/data/products`) e volumes montados (concluído em 13/10/2026)
+- [-] Normalizar caminhos de catálogo e arquivos para representação POSIX-safe em runtime Linux/NAS, preservando a identidade do produto ao mover ou renomear diretórios (implementação e testes de caminho ajustados em 05/11/2026; falta validação no host Linux/TrueNAS)
 - [ ] Implementar navegador de diretórios restrito por *allowlist* na Web UI (opcional, mas recomendado)
 
 #### B.2 Filtros e Regras de Exclusão no Watcher
-- [x] Ignorar qualquer pasta cujo nome comece com `_` (incluindo `_arquivos/`, `_draft`, `_cache` e similares)
-- [x] Aplicar padrões configuráveis de exclusão: `*.psd`, `~$*`, `*.tmp`, `Thumbs.db`, `.DS_Store`
-- [x] Tornar as regras de ignore configuráveis (arquivo de configuração ou variáveis de ambiente)
+- [x] Ignorar qualquer pasta cujo nome comece com `_` (incluindo `_arquivos/`, `_draft`, `_cache` e similares) (concluído em 13/10/2026)
+- [x] Aplicar padrões configuráveis de exclusão: `*.psd`, `~$*`, `*.tmp`, `Thumbs.db`, `.DS_Store` (concluído em 13/10/2026)
+- [x] Tornar as regras de ignore configuráveis (arquivo de configuração ou variáveis de ambiente) (concluído em 13/10/2026)
 
 #### B.3 Ajustes de Infraestrutura para NAS
-- [x] Intervalo de reconciliação configurável (SMB/NFS) em estrutura do watcher e env vars
-- [x] Botão / endpoint de reindexação manual sob demanda
-- [x] Configuração de permissões PUID/PGID no Docker para escrita atômica
-- [x] Tratar casos de borda: renomeação de arquivos/pastas, debounce e eventos perdidos
-- [x] Suporte a múltiplas raízes de produtos
+- [x] Intervalo de reconciliação configurável (SMB/NFS) em estrutura do watcher e env vars (concluído em 13/10/2026)
+- [x] Botão / endpoint de reindexação manual sob demanda (concluído em 13/10/2026)
+- [x] Configuração de permissões PUID/PGID no Docker para escrita atômica (concluído em 13/10/2026; validação operacional no host continua pendente)
+- [x] Tratar casos de borda: renomeação de arquivos/pastas, debounce e eventos perdidos (concluído em 13/10/2026)
+- [x] Suporte a múltiplas raízes de produtos (concluído em 13/10/2026)
 
 #### B.4 Modularização do Backend
 - [x] Separar modelos (`backend_core/models.py`), acesso ao banco (`backend_core/database.py`), lógica de catálogo (`backend_core/catalog.py`) e processamento de mídia (`backend_core/media.py`), mantendo `main.py` como ponto de entrada compatível (concluído em 05/11/2026)
-- [x] Validar a compatibilidade das rotas, migrações e imports existentes com a suíte do backend (20 testes aprovados em 05/11/2026)
+- [x] Validar a compatibilidade das rotas, migrações e imports existentes com a suíte do backend (20 testes aprovados em 05/11/2026; concluído em 05/11/2026)
 - [x] Separar endpoints HTTP em routers de sistema, configuração, produtos, eventos, mídia e integração local, mantendo os caminhos HTTP existentes (concluído em 05/11/2026)
-- [x] Validar a integração dos routers com a suíte do backend (20 testes aprovados em 05/11/2026)
+- [x] Validar a integração dos routers com a suíte do backend (20 testes aprovados em 05/11/2026; concluído em 05/11/2026)
 
 **Critério de aceite da Etapa B:**  
 Aplicação sobe em TrueNAS apenas com volumes e variáveis de ambiente, sem qualquer dependência do seletor Windows, com regras de ignore ativas e reindexação manual funcional.  
-Status atual: critério funcional validado em testes Linux e em execução local; validação final em host Docker/TrueNAS ainda depende de acesso ao daemon do Docker na máquina alvo.
+Status atual: código e testes locais cobrem o fluxo funcional; validação real da stack e de permissões em host Linux/TrueNAS continua pendente.
 
 ---
 
-### Etapa C — Robustez do Schema, Imagens e Múltiplas Raízes
-**Status:** Proposta (após conclusão da Etapa B)
+### Etapa C — Robustez do Schema e Imagens
+**Status:** Em andamento — registry inicial implementado; falta definir e introduzir uma próxima mudança de schema
 
-- [ ] Versionamento do schema do `product.yaml` com migração transparente entre versões
-- [ ] Política de limites e otimização de imagens (thumbnails + conversão WebP para a Web UI)
-- [ ] Suporte nativo completo para cadastro e monitoramento de múltiplas raízes
+- [x] Criar registry de migrações do `product.yaml`: manifests legados sem versão migram para v1 com preservação de campos desconhecidos; versões futuras são sinalizadas sem alteração do arquivo (22 testes do backend aprovados em 06/11/2026; concluído em 06/11/2026)
+- [ ] Definir o schema v2 e a migração v1 → v2 junto da primeira mudança funcional de formato
+- [x] Processar imagens para entrega na Web UI com thumbnails e conversão WebP, preservando suporte à entrega direta (concluído em 06/11/2026)
 
 ---
 
@@ -201,14 +204,11 @@ Status atual: critério funcional validado em testes Linux e em execução local
 
 ## 5. Decisões em Aberto
 
-Estas decisões devem ser fechadas preferencialmente ainda na Etapa B:
-
-| # | Decisão | Opções | Recomendação atual | Status |
-|---|---------|--------|--------------------|--------|
-| 1 | Organização de categorias | Subpastas vs tudo na raiz | Manter subpastas + categoria opcional no YAML | Aberta |
-| 2 | Material de trabalho | Pasta `_arquivos/` dentro do anúncio vs árvore paralela | Pasta `_arquivos/` (mais simples) | Quase fechada |
-| 3 | Seleção de pastas | Navegador web com allowlist vs apenas volume | Ambos (volume obrigatório + navegador opcional) | Aberta |
-| 4 | Escopo final da Fase 1 | Definir claramente o que entra na primeira versão utilizável | A definir após Etapa B | Aberta |
+| # | Decisão | Opções / critério | Estado |
+|---|---------|------------------|--------|
+| 1 | Navegador de diretórios na Web UI | Implementar um navegador restrito por *allowlist* dos pontos de montagem ou manter configuração exclusivamente por volumes/variáveis de ambiente. Não é requisito para o deploy inicial. | Aberta; avaliar após validação Linux/TrueNAS |
+| 2 | Escopo da primeira versão utilizável | Definir critérios objetivos de entrega e quais integrações entram no primeiro release. | Aberta; fechar após Etapa B |
+| 3 | Próxima mudança funcional do manifest | Identificar requisito que demande schema v2; não criar uma versão sem mudança real que a justifique. | Aberta; dependente da evolução funcional |
 
 ---
 
@@ -216,7 +216,7 @@ Estas decisões devem ser fechadas preferencialmente ainda na Etapa B:
 
 | Risco | Impacto | Mitigação |
 |-------|---------|-----------|
-| Conflito YAML × Banco | Alto | Fonte da verdade **sempre** é o YAML. Write-back deve seguir o ADR já existente. |
+| Conflito YAML × Banco | Alto | Fonte da verdade **sempre** é o YAML; o banco é índice reconstruível e nunca substitui silenciosamente o manifest. |
 | Eventos não confiáveis em SMB/NFS | Alto | Reconciliação periódica configurável + reindexação manual. |
 | Arquivos pesados (PSD/RAW) na árvore | Médio-Alto | Isolamento em `_arquivos/` + padrões de ignore. |
 | Precificação automática sem piso | Crítico | *Hard floor* obrigatório no motor (Etapa E). |
@@ -227,13 +227,11 @@ Estas decisões devem ser fechadas preferencialmente ainda na Etapa B:
 
 ## 7. Próximos Passos Imediatos (Ordem de Execução)
 
-1. **Concluir validação final em host Linux/TrueNAS com acesso liberado ao Docker daemon**.
-2. Verificar a stack completa com `docker compose up -d --build` no ambiente alvo.
-3. Validar a primeira execução real lendo um volume montado de produtos com pastas `_...` e arquivos auxiliares.
-4. Revisar o escopo da Fase 1 e registrar o fechamento oficial da Etapa B.
-5. Após conclusão da Etapa B → revisar e fechar o escopo da Fase 1.
-
-> Observação: os itens de implementação desta etapa já foram concluídos em código e validados por testes; o único bloqueio restante é a validação de infraestrutura no host de execução real.
+1. Validar build e execução da stack em host Linux/TrueNAS com Docker, volumes reais e permissões PUID/PGID.
+2. Confirmar caminhos POSIX, reindexação e consistência após mover/renomear produtos no host de destino.
+3. Executar reconciliação em um volume com pastas reservadas `_...` e arquivos auxiliares e conferir o catálogo resultante.
+4. Fechar os critérios da primeira versão utilizável e atualizar o status da Etapa B.
+5. Planejar uma mudança funcional concreta antes de introduzir schema v2.
 
 ---
 

@@ -12,6 +12,7 @@ from sqlalchemy import inspect, select
 from sqlalchemy.orm import Session
 
 from .database import Base
+from .manifest_migrations import ManifestMigrationError, migrate_manifest
 from .models import (
     DEFAULT_WORKSPACE_ID,
     ProductEvent,
@@ -118,10 +119,15 @@ def _manifest_metadata(
     except (OSError, yaml.YAMLError) as error:
         return None, str(error)
 
-    needs_write = not manifest_exists
-    if "schema_version" not in raw_metadata:
-        raw_metadata["schema_version"] = 1
-        needs_write = True
+    try:
+        raw_metadata, migrated = migrate_manifest(raw_metadata)
+    except ManifestMigrationError as error:
+        try:
+            return json.loads(json.dumps(raw_metadata, default=str)), str(error)
+        except (TypeError, ValueError):
+            return None, str(error)
+
+    needs_write = not manifest_exists or migrated
     if "id" not in raw_metadata:
         raw_metadata["id"] = preferred_id or str(uuid4())
         needs_write = True

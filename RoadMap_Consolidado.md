@@ -1,7 +1,9 @@
 # OmniKestra (OmnIkestrAPIM) — Roadmap Oficial
 
-**Última atualização:** 13/10/2026  
-**Status geral do projeto:** Em desenvolvimento ativo — Etapa B em avanço com validação Linux concluída em código; validação final em host Docker/TrueNAS bloqueada por permissão do daemon  
+**Última atualização:** 05/11/2026
+
+**Status geral do projeto:** Em desenvolvimento ativo — Etapa B em avanço; lógica interna e endpoints do backend modularizados, com 20 testes aprovados localmente. A validação final de paths em host Docker/TrueNAS ainda depende de acesso ao daemon do Docker
+
 **Documento de referência:** Este é o roadmap único e oficial. Todas as decisões, tarefas e atualizações de status devem ser registradas aqui.
 
 ---
@@ -102,6 +104,7 @@ O **OmnIkestrAPIM** é uma ferramenta *self-hosted* de gestão de inventário e 
 #### B.1 Configuração de Raiz por Volume/Ambiente
 - [x] Remover dependência do `windows_folder_picker.ps1` no fluxo principal (concluído em 13/10/2026 em código e com testes)
 - [x] Definir raízes de anúncios por variáveis de ambiente (`PRODUCT_ROOTS` / `/data/products`) e volumes montados
+- [-] Normalizar caminhos de catálogo e arquivos para representação POSIX-safe em runtime Linux/NAS, preservando a identidade do produto ao mover ou renomear diretórios (em progresso desde 05/11/2026)
 - [ ] Implementar navegador de diretórios restrito por *allowlist* na Web UI (opcional, mas recomendado)
 
 #### B.2 Filtros e Regras de Exclusão no Watcher
@@ -115,6 +118,12 @@ O **OmnIkestrAPIM** é uma ferramenta *self-hosted* de gestão de inventário e 
 - [x] Configuração de permissões PUID/PGID no Docker para escrita atômica
 - [x] Tratar casos de borda: renomeação de arquivos/pastas, debounce e eventos perdidos
 - [x] Suporte a múltiplas raízes de produtos
+
+#### B.4 Modularização do Backend
+- [x] Separar modelos (`backend_core/models.py`), acesso ao banco (`backend_core/database.py`), lógica de catálogo (`backend_core/catalog.py`) e processamento de mídia (`backend_core/media.py`), mantendo `main.py` como ponto de entrada compatível (concluído em 05/11/2026)
+- [x] Validar a compatibilidade das rotas, migrações e imports existentes com a suíte do backend (20 testes aprovados em 05/11/2026)
+- [x] Separar endpoints HTTP em routers de sistema, configuração, produtos, eventos, mídia e integração local, mantendo os caminhos HTTP existentes (concluído em 05/11/2026)
+- [x] Validar a integração dos routers com a suíte do backend (20 testes aprovados em 05/11/2026)
 
 **Critério de aceite da Etapa B:**  
 Aplicação sobe em TrueNAS apenas com volumes e variáveis de ambiente, sem qualquer dependência do seletor Windows, com regras de ignore ativas e reindexação manual funcional.  

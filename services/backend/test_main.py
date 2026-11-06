@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
+from backend_core import runtime
 from main import (
     Base,
     ProductEvent,
@@ -151,7 +152,10 @@ def test_scan_products_seeds_stable_v1_manifest(tmp_path):
     product_dir.mkdir()
     (product_dir / "cover.jpg").write_bytes(b"image")
 
-    with patch("main._write_manifest_atomic", wraps=_write_manifest_atomic) as write_manifest:
+    with patch(
+        "backend_core.catalog._write_manifest_atomic",
+        wraps=_write_manifest_atomic,
+    ) as write_manifest:
         first_scan = _scan_products(tmp_path)[0]
         second_scan = _scan_products(tmp_path)[0]
 
@@ -188,7 +192,7 @@ def test_sync_product_catalog_persists_and_removes_products(tmp_path):
     with Session(database) as session:
         products = _sync_product_catalog(session, tmp_path)
         stored = session.scalar(
-            select(ProductRecord).where(ProductRecord.path == str(product_dir))
+            select(ProductRecord).where(ProductRecord.path == product_dir.as_posix())
         )
         assert len(products) == 1
         assert stored is not None
@@ -267,7 +271,7 @@ def test_incremental_move_preserves_product_identity(tmp_path):
         assert len(products) == 1
         assert products[0].id == database_id
         assert products[0].product_uuid == stable_id
-        assert products[0].path == str(renamed_dir)
+        assert products[0].path == renamed_dir.as_posix()
 
     database.dispose()
 
@@ -292,7 +296,7 @@ def test_event_on_legacy_group_placeholder_resolves_to_nested_product(tmp_path):
         assert _product_directory_for_path(tmp_path, str(group), session, "default", True) is None
         indexed = session.scalars(select(ProductRecord)).all()
         assert len(indexed) == 1
-        assert indexed[0].path == str(product_dir)
+        assert indexed[0].path == product_dir.as_posix()
 
     database.dispose()
 
@@ -365,7 +369,7 @@ def test_dashboard_routes_return_html():
 
 
 def test_local_picker_token_is_not_cacheable(monkeypatch):
-    monkeypatch.setattr("main.PICKER_TOKEN", "test-local-picker-token")
+    monkeypatch.setattr(runtime, "PICKER_TOKEN", "test-local-picker-token")
     response = TestClient(app).get("/api/local/picker-token")
 
     assert response.status_code == 200
@@ -375,8 +379,8 @@ def test_local_picker_token_is_not_cacheable(monkeypatch):
 
 def test_product_roots_can_be_updated_in_memory(monkeypatch):
     previous_roots = list(__import__("main").PRODUCT_ROOTS)
-    monkeypatch.setattr("main.PRODUCT_ROOTS", tuple(previous_roots))
-    monkeypatch.setattr("main.PRODUCTS_ROOT", previous_roots[0])
+    monkeypatch.setattr(runtime, "PRODUCT_ROOTS", tuple(previous_roots))
+    monkeypatch.setattr(runtime, "PRODUCTS_ROOT", previous_roots[0])
 
     client = TestClient(app)
     response = client.post(
@@ -387,9 +391,6 @@ def test_product_roots_can_be_updated_in_memory(monkeypatch):
     assert response.status_code == 200
     assert response.json()["roots"] == ["/tmp/omnikestr-products"]
     assert __import__("main").PRODUCTS_ROOT == Path("/tmp/omnikestr-products")
-
-    monkeypatch.setattr("main.PRODUCT_ROOTS", tuple(previous_roots))
-    monkeypatch.setattr("main.PRODUCTS_ROOT", previous_roots[0])
 
 
 @pytest.fixture
@@ -420,7 +421,8 @@ def product_api(tmp_path, monkeypatch):
 
     app.dependency_overrides.clear()
     app.dependency_overrides[get_db] = override_get_db
-    monkeypatch.setattr("main.PRODUCTS_ROOT", product_root)
+    monkeypatch.setattr(runtime, "PRODUCT_ROOTS", (product_root,))
+    monkeypatch.setattr(runtime, "PRODUCTS_ROOT", product_root)
     with Session(database) as session:
         _sync_product_catalog(session, product_root)
 
@@ -433,7 +435,10 @@ def product_api(tmp_path, monkeypatch):
 
 def test_product_patch_preserves_unknown_yaml_and_prevents_write_loop(product_api):
     client, database, product_root, product_dir, product_id = product_api
-    with patch("main._write_manifest_atomic", wraps=_write_manifest_atomic) as atomic_write:
+    with patch(
+        "backend_core.api.products._write_manifest_atomic",
+        wraps=_write_manifest_atomic,
+    ) as atomic_write:
         response = client.patch(
             f"/api/products/{product_id}",
             json={"title": "Updated title", "status": "published", "sku": "TEST-1"},

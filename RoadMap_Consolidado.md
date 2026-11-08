@@ -123,6 +123,11 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 - [x] Suporte a múltiplas raízes de produtos (concluído em 13/10/2026)
 - [x] Preparar e publicar a primeira stack para TrueNAS SCALE 25.10: autenticação do host no GHCR configurada; workflow executado com sucesso para publicar backend e watcher; Compose atualizado e `docker compose pull`/subida integrada de `db`, `backend` e `watcher` validados no TrueNAS (concluído em 08/11/2026). Permanecem pendentes os testes ampliados de catálogo, permissões, movimentação e reconciliação em dataset de teste.
 - [x] Automatizar publicação de imagens para pushes em `main` com tag mutável `latest`, mantendo publicação versionada por tags SemVer `v*` (concluído em 08/11/2026).
+- [ ] Fixar as imagens usadas no TrueNAS em tags SemVer validadas ou digests; documentar como atualizar ambas em conjunto e como voltar para a versão anterior.
+- [ ] Definir e implementar armazenamento seguro da senha do PostgreSQL no TrueNAS, sem credenciais no Compose versionado, preservando a configuração coerente do serviço `db` e da URL do backend.
+- [ ] Restringir e documentar o acesso de rede à API no TrueNAS enquanto não houver autenticação nativa, limitando o acesso à LAN/VPN e evitando exposição pública da porta.
+- [ ] Validar o watcher com o volume de produtos montado como somente leitura; aplicar a restrição apenas se os testes funcionais confirmarem que o serviço não precisa gravar nesses dados.
+- [ ] Documentar e validar procedimento seguro de atualização: backup, pull das imagens fixadas, recriação dos serviços, verificação de saúde e rollback, considerando compatibilidade das migrações.
 - [-] Criar bootstrap local Zero-Config e wizard inicial: script, defaults e seleção persistente de pasta em implementação desde 07/11/2026; falta validar instalação do zero e os limites de seleção em volumes montados.
 
 #### B.4 Modularização do Backend
@@ -212,6 +217,8 @@ Status atual: a stack integrada `db`, `backend` e `watcher` foi iniciada no True
 | 1 | Navegador de diretórios na Web UI | Implementar um navegador restrito por *allowlist* dos pontos de montagem ou manter configuração exclusivamente por volumes/variáveis de ambiente. Não é requisito para o deploy inicial. | Aberta; avaliar após validação Linux/TrueNAS |
 | 2 | Escopo da primeira versão utilizável | Definir critérios objetivos de entrega e quais integrações entram no primeiro release. | Aberta; fechar após Etapa B |
 | 3 | Próxima mudança funcional do manifest | Identificar requisito que demande schema v2; não criar uma versão sem mudança real que a justifique. | Aberta; dependente da evolução funcional |
+| 4 | Estratégia de credenciais no TrueNAS | Escolher entre secrets/credenciais gerenciadas pela interface do TrueNAS ou arquivo de ambiente protegido no host; validar suporte no método de instalação usado e evitar segredo em YAML versionado. | Aberta; avaliar antes de alterar o Compose |
+| 5 | Política de tags para deploy no TrueNAS | Decidir se o deploy usará tags SemVer fixas ou digests; manter `latest` apenas como conveniência de publicação/atualização, não como referência reprodutível de produção. | Aberta; recomendação inicial: SemVer validada |
 
 ---
 
@@ -231,10 +238,12 @@ Status atual: a stack integrada `db`, `backend` e `watcher` foi iniciada no True
 ## 7. Próximos Passos Imediatos (Ordem de Execução)
 
 1. [x] Validar publicação das imagens e inicialização integrada de `db`, `backend` e `watcher` no TrueNAS (concluído em 08/11/2026); ampliar depois os testes funcionais com dataset de teste.
-2. Confirmar caminhos POSIX, reindexação e consistência após mover/renomear produtos no host de destino.
-3. Executar reconciliação em um volume com pastas reservadas `_...` e arquivos auxiliares e conferir o catálogo resultante.
-4. Fechar os critérios da primeira versão utilizável e atualizar o status da Etapa B.
-5. Planejar uma mudança funcional concreta antes de introduzir schema v2.
+2. Executar testes com dataset de teste: validar permissões, caminhos POSIX, reindexação, movimentação/renomeação e reconciliação de pastas reservadas e arquivos auxiliares.
+3. Decidir a estratégia de credenciais e tags imutáveis para o TrueNAS antes de atualizar o Compose de produção.
+4. Validar o isolamento de rede e testar o watcher em modo somente leitura antes de aplicar essa restrição.
+5. Documentar e testar backup, atualização e rollback da stack, incluindo efeitos das migrações.
+6. Fechar os critérios da primeira versão utilizável e atualizar o status da Etapa B.
+7. Planejar uma mudança funcional concreta antes de introduzir schema v2.
 
 ---
 

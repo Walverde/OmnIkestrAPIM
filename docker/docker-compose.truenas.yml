@@ -1,0 +1,84 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: omnikestr
+      POSTGRES_USER: omnikestr
+      POSTGRES_PASSWORD: REPLACE_WITH_RANDOM_HEX_PASSWORD
+    volumes:
+      - type: bind
+        source: /mnt/POOL_NAME/apps/omnikestr/postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - omnikestr
+
+  backend:
+    image: ghcr.io/walverde/omnikestrapim-backend:0.1.0
+    user: "568:568"
+    ports:
+      - "8000:8000"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      DATABASE_URL: postgresql+psycopg2://omnikestr:REPLACE_WITH_RANDOM_HEX_PASSWORD@db:5432/omnikestr
+      PRODUCTS_ROOT: /data/products
+      PRODUCT_ROOTS: /data/products
+      PUID: "568"
+      PGID: "568"
+    volumes:
+      - type: bind
+        source: /mnt/POOL_NAME/products
+        target: /data/products
+        bind:
+          create_host_path: false
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - omnikestr
+
+  watcher:
+    image: ghcr.io/walverde/omnikestrapim-watcher:0.1.0
+    user: "568:568"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      WATCH_DIRS: /data/products
+      PRODUCT_ROOTS: /data/products
+      BACKEND_URL: http://backend:8000
+      PUID: "568"
+      PGID: "568"
+    volumes:
+      - type: bind
+        source: /mnt/POOL_NAME/products
+        target: /data/products
+        bind:
+          create_host_path: false
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - omnikestr
+
+networks:
+  omnikestr:
+    driver: bridge

@@ -17,10 +17,17 @@ reconciliação.
 - UID e GID que terão acesso de leitura e escrita ao dataset de produtos.
 
 O workflow de GitHub Actions em `.github/workflows/publish-containers.yml`
-publica imagens quando uma tag SemVer (`vMAJOR.MINOR.PATCH`) é enviada ao
-repositório. As imagens do GHCR podem estar privadas por padrão: torne-as
-públicas somente se isso for desejado, ou configure credenciais de pull do
-registry no TrueNAS antes de instalar.
+publica as imagens do backend e watcher no GHCR em pushes para `main` e em
+tags SemVer (`vMAJOR.MINOR.PATCH`). Cada push para `main` atualiza a tag
+mutável `latest`; tags SemVer publicam tags de versão, como `0.1.0`. O workflow
+foi executado com sucesso em 08/11/2026
+([execução no GitHub Actions](https://github.com/Walverde/OmnIkestrAPIM/actions/runs/42518491139)).
+
+As imagens do GHCR podem exigir autenticação. No TrueNAS, faça login no
+registry com um Personal Access Token (PAT) que tenha permissão de leitura dos
+pacotes (`read:packages`). Informe o token apenas no prompt seguro do comando
+de login; não o salve neste Compose, no Git ou em documentação. O login bem
+sucedido permite que o Docker do host baixe as imagens privadas.
 
 ## Preparar os datasets
 
@@ -45,17 +52,19 @@ IDs/permissões no seu sistema; altere `user`, `PUID` e `PGID` nos serviços
 processo `postgres` da imagem oficial inicialize e grave os dados; não aplique
 automaticamente a ele o mesmo UID/GID escolhido para os produtos.
 
-## Publicar as imagens
+## Publicar e atualizar as imagens
 
-Depois que a alteração estiver no GitHub, crie e envie uma tag de versão, por
-exemplo `v0.1.0`. Isso dispara o workflow e publica:
+Para a atualização contínua, cada push para `main` executa o workflow e publica
+as imagens com a tag `latest`. Para uma versão fixa, crie e envie uma tag
+SemVer, por exemplo `v0.1.0`; isso publica:
 
 - `ghcr.io/walverde/omnikestrapim-backend:0.1.0`
 - `ghcr.io/walverde/omnikestrapim-watcher:0.1.0`
 
-Confirme que a execução do workflow terminou com sucesso antes de instalar. Se
-usar outra versão, atualize as duas tags de imagem em
-`docker/docker-compose.truenas.yml`.
+Confirme que a execução do workflow terminou com sucesso antes de atualizar o
+TrueNAS. O Compose versionado neste repositório usa `latest` para consumir
+builds da branch principal. Essa tag é mutável; para implantação reproduzível,
+prefira fixar as duas imagens numa tag SemVer já validada.
 
 ## Configurar e instalar
 
@@ -71,13 +80,18 @@ usar outra versão, atualize as duas tags de imagem em
    `REPLACE_WITH_RANDOM_HEX_PASSWORD` pelas mesmas 64 letras/números nas duas
    ocorrências do Compose. Não use a senha de exemplo nem a reutilize em outros
    serviços.
-5. Se o registry for privado, configure primeiro as credenciais de pull de
-   imagens no TrueNAS.
-6. Revise as permissões do dataset e o UID/GID configurado. Instale o app e
-   acompanhe os eventos/logs até `db`, `backend` e `watcher` estarem em execução.
-7. Abra `http://IP_DO_TRUENAS:8000/settings` na rede local e valide o catálogo
-   de teste, depois faça uma reindexação e teste mover/renomear uma pasta de
-   produto.
+5. Se as imagens forem privadas, autentique o Docker do TrueNAS no GHCR com um
+   PAT de leitura de pacotes. Não coloque o valor do token no Compose.
+6. Revise as permissões do dataset e o UID/GID configurado. No diretório do
+   Compose, baixe as imagens e suba/atualize a stack:
+   `docker compose -f docker-compose.yml pull` e depois
+   `docker compose -f docker-compose.yml up -d`.
+   Se estiver usando o editor de Custom App do TrueNAS, aplique as mesmas
+   alterações e use a ação de atualizar/reimplantar do app.
+7. Acompanhe os eventos/logs até `db`, `backend` e `watcher` estarem em
+   execução. Abra `http://IP_DO_TRUENAS:8000/settings` na rede local e valide o
+   catálogo de teste, depois faça uma reindexação e teste mover/renomear uma
+   pasta de produto.
 
 O primeiro início do backend aguarda o PostgreSQL saudável, aplica as
 migrações Alembic automaticamente e reconcilia o catálogo. Não execute
@@ -94,8 +108,9 @@ migrações SQL manualmente.
 - O PostgreSQL usa bind mount persistente. Inclua esse dataset nos backups e
   teste a restauração antes de usar dados de produção.
 - Para atualizar, publique uma nova tag de imagens, altere as duas tags no
-  Compose e aplique a atualização do Custom App. Faça backup do PostgreSQL e
-  dos manifests antes de atualizar.
+  Compose (ou atualize `latest` com `pull` e recriação dos containers) e
+  aplique a atualização do Custom App. Faça backup do PostgreSQL e dos
+  manifests antes de atualizar.
 - Para voltar atrás, restaure conjuntamente a versão anterior do app e os
   backups correspondentes. Não apague o dataset de PostgreSQL ao remover ou
   recriar o Custom App.

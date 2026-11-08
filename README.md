@@ -46,6 +46,16 @@ Compose file and follow the dataset, image publishing, permissions, and security
 steps in [the TrueNAS installation guide](docs/deployment/truenas-scale-25.10.md).
 Do not use the development Compose file directly on production data.
 
+The GitHub Actions publishing workflow builds the backend and watcher images
+for pushes to `main` (updating the mutable `latest` tags) and SemVer tags
+(`vMAJOR.MINOR.PATCH`). The TrueNAS Compose currently consumes `latest`; use
+version-pinned image tags when reproducible deployments are preferred. GHCR
+access on TrueNAS may require a package-read PAT; never store the token in the
+Compose file or repository. The publishing workflow
+[completed successfully](https://github.com/Walverde/OmnIkestrAPIM/actions/runs/42518491139),
+and the initial integrated TrueNAS stack (`db`, `backend`, and `watcher`) was
+brought up successfully on 08/11/2026.
+
 On first access to `http://localhost:8000`, the setup wizard lets you choose or
 create a product folder inside the mounted product volume. The selection is
 stored in PostgreSQL and restored on the next backend start. It cannot mount

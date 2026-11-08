@@ -1,8 +1,8 @@
 # OmniKestra (OmnIkestrAPIM) — Roadmap Oficial
 
-**Última atualização:** 07/11/2026
+**Última atualização:** 08/11/2026
 
-**Status geral do projeto:** Em desenvolvimento ativo — setup inicial Zero-Config e onboarding em implementação; validação operacional no TrueNAS SCALE ainda pendente.
+**Status geral do projeto:** Em desenvolvimento ativo — primeira stack integrada validada no TrueNAS SCALE; fluxo Zero-Config/onboarding continua em validação.
 
 **Fonte única de planejamento e decisões:** este documento consolida o roadmap oficial anterior, os rascunhos de roadmap e as decisões dos ADRs 0001 e 0002. Novas tarefas, status e decisões devem ser mantidos somente aqui. `docs/ARCHITECTURE.md` continua como referência descritiva de arquitetura, sem substituir este registro.
 
@@ -41,7 +41,7 @@ Este roadmap controla o escopo, prioridades, decisões e progresso. A implementa
 
 ### Lacunas e verificações pendentes
 
-- Validar a stack no host Linux/TrueNAS com volumes reais e permissões PUID/PGID; o daemon Docker do host alvo não estava disponível durante a validação local.
+- A stack inicial `db`, `backend` e `watcher` foi iniciada no TrueNAS em 08/11/2026; ainda falta ampliar a validação com catálogo, permissões e operações reais de movimentação/reconciliação.
 - Confirmar no host Linux o comportamento de caminhos POSIX e eventos de watcher/reconciliação.
 - O navegador de diretórios com *allowlist* permanece opcional e não implementado.
 - Migrações de manifests para versões futuras ainda dependem da definição e aprovação de um schema v2.
@@ -118,10 +118,11 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 #### B.3 Ajustes de Infraestrutura para NAS
 - [x] Intervalo de reconciliação configurável (SMB/NFS) em estrutura do watcher e env vars (concluído em 13/10/2026)
 - [x] Botão / endpoint de reindexação manual sob demanda (concluído em 13/10/2026)
-- [x] Configuração de permissões PUID/PGID no Docker para escrita atômica (concluído em 13/10/2026; validação operacional no host continua pendente)
+- [x] Configuração de permissões PUID/PGID no Docker para escrita atômica (concluído em 13/10/2026; stack iniciada no TrueNAS em 08/11/2026, com testes ampliados de permissões ainda pendentes)
 - [x] Tratar casos de borda: renomeação de arquivos/pastas, debounce e eventos perdidos (concluído em 13/10/2026)
 - [x] Suporte a múltiplas raízes de produtos (concluído em 13/10/2026)
-- [-] Preparar primeira instalação para TrueNAS SCALE 25.10 como Custom App: Compose de produção, publicação versionada das imagens e guia de instalação criados em 07/11/2026; falta executar o workflow de publicação e validar em VM com dataset de teste.
+- [x] Preparar e publicar a primeira stack para TrueNAS SCALE 25.10: autenticação do host no GHCR configurada; workflow executado com sucesso para publicar backend e watcher; Compose atualizado e `docker compose pull`/subida integrada de `db`, `backend` e `watcher` validados no TrueNAS (concluído em 08/11/2026). Permanecem pendentes os testes ampliados de catálogo, permissões, movimentação e reconciliação em dataset de teste.
+- [x] Automatizar publicação de imagens para pushes em `main` com tag mutável `latest`, mantendo publicação versionada por tags SemVer `v*` (concluído em 08/11/2026).
 - [-] Criar bootstrap local Zero-Config e wizard inicial: script, defaults e seleção persistente de pasta em implementação desde 07/11/2026; falta validar instalação do zero e os limites de seleção em volumes montados.
 
 #### B.4 Modularização do Backend
@@ -132,7 +133,7 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 
 **Critério de aceite da Etapa B:**  
 Aplicação sobe em TrueNAS apenas com volumes e variáveis de ambiente, sem qualquer dependência do seletor Windows, com regras de ignore ativas e reindexação manual funcional.  
-Status atual: código e testes locais cobrem o fluxo funcional; validação real da stack e de permissões em host Linux/TrueNAS continua pendente.
+Status atual: a stack integrada `db`, `backend` e `watcher` foi iniciada no TrueNAS em 08/11/2026; catálogo, permissões efetivas, caminhos POSIX e eventos de movimentação/reconciliação ainda precisam de validação ampliada.
 
 ---
 
@@ -229,7 +230,7 @@ Status atual: código e testes locais cobrem o fluxo funcional; validação real
 
 ## 7. Próximos Passos Imediatos (Ordem de Execução)
 
-1. Validar build e execução da stack em host Linux/TrueNAS com Docker, volumes reais e permissões PUID/PGID.
+1. [x] Validar publicação das imagens e inicialização integrada de `db`, `backend` e `watcher` no TrueNAS (concluído em 08/11/2026); ampliar depois os testes funcionais com dataset de teste.
 2. Confirmar caminhos POSIX, reindexação e consistência após mover/renomear produtos no host de destino.
 3. Executar reconciliação em um volume com pastas reservadas `_...` e arquivos auxiliares e conferir o catálogo resultante.
 4. Fechar os critérios da primeira versão utilizável e atualizar o status da Etapa B.

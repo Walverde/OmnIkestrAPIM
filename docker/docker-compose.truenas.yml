@@ -22,7 +22,7 @@ services:
       - omnikestr
 
   backend:
-    image: ghcr.io/walverde/omnikestrapim-backend:0.1.0
+    image: ghcr.io/walverde/omnikestrapim-backend:latest
     user: "568:568"
     ports:
       - "8000:8000"
@@ -53,7 +53,7 @@ services:
       - omnikestr
 
   watcher:
-    image: ghcr.io/walverde/omnikestrapim-watcher:0.1.0
+    image: ghcr.io/walverde/omnikestrapim-watcher:latest
     user: "568:568"
     environment:
       PYTHONUNBUFFERED: "1"

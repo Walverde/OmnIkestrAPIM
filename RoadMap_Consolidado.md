@@ -2,7 +2,7 @@
 
 **Última atualização:** 07/11/2026
 
-**Status geral do projeto:** Em desenvolvimento ativo — preparação inicial de deploy como Custom App no TrueNAS SCALE 25.10; validação operacional em VM/host ainda pendente.
+**Status geral do projeto:** Em desenvolvimento ativo — setup inicial Zero-Config e onboarding em implementação; validação operacional no TrueNAS SCALE ainda pendente.
 
 **Fonte única de planejamento e decisões:** este documento consolida o roadmap oficial anterior, os rascunhos de roadmap e as decisões dos ADRs 0001 e 0002. Novas tarefas, status e decisões devem ser mantidos somente aqui. `docs/ARCHITECTURE.md` continua como referência descritiva de arquitetura, sem substituir este registro.
 
@@ -122,6 +122,7 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 - [x] Tratar casos de borda: renomeação de arquivos/pastas, debounce e eventos perdidos (concluído em 13/10/2026)
 - [x] Suporte a múltiplas raízes de produtos (concluído em 13/10/2026)
 - [-] Preparar primeira instalação para TrueNAS SCALE 25.10 como Custom App: Compose de produção, publicação versionada das imagens e guia de instalação criados em 07/11/2026; falta executar o workflow de publicação e validar em VM com dataset de teste.
+- [-] Criar bootstrap local Zero-Config e wizard inicial: script, defaults e seleção persistente de pasta em implementação desde 07/11/2026; falta validar instalação do zero e os limites de seleção em volumes montados.
 
 #### B.4 Modularização do Backend
 - [x] Separar modelos (`backend_core/models.py`), acesso ao banco (`backend_core/database.py`), lógica de catálogo (`backend_core/catalog.py`) e processamento de mídia (`backend_core/media.py`), mantendo `main.py` como ponto de entrada compatível (concluído em 05/11/2026)

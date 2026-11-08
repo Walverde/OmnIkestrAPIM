@@ -1,10 +1,15 @@
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from .. import runtime
+from ..api.config import SETUP_COMPLETE_SETTING
+from ..models import AppSettingRecord, ProductRecord
+from .dependencies import get_db
 
 
 router = APIRouter()
@@ -21,8 +26,17 @@ def health_check():
 
 
 @router.get("/")
-def read_root():
+def read_root(db: Session = Depends(get_db)):
+    setup_complete = db.get(AppSettingRecord, SETUP_COMPLETE_SETTING)
+    has_products = db.scalar(select(ProductRecord.id).limit(1)) is not None
+    if not has_products and not (setup_complete and setup_complete.value == "true"):
+        return FileResponse(runtime.SETUP_PAGE, media_type="text/html")
     return FileResponse(runtime.DASHBOARD_PAGE, media_type="text/html")
+
+
+@router.get("/setup", response_class=FileResponse)
+def setup_page():
+    return FileResponse(runtime.SETUP_PAGE, media_type="text/html")
 
 
 @router.get("/home", response_class=FileResponse)

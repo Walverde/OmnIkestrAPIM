@@ -318,7 +318,7 @@
       try {
         const config = await requestJson("/api/config/product-roots");
         const root = (config.roots && config.roots[0]) || config.default_root || "/data/products";
-        helperStatus.textContent = config.source === "environment" ? "Configuração por ambiente" : "Configuração em runtime";
+        helperStatus.textContent = config.source === "database" ? "Configuração salva" : config.source === "environment" ? "Configuração por ambiente" : "Padrão local";
         currentPath.textContent = root;
         selectedPath.textContent = root;
         manualRootInput.value = root;

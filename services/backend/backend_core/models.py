@@ -148,6 +148,11 @@ class ProductRootConfig(BaseModel):
     roots: List[str] = Field(default_factory=list)
 
 
+class CreateProductFolderRequest(BaseModel):
+    parent: str = Field(min_length=1, max_length=2048)
+    name: str = Field(min_length=1, max_length=128)
+
+
 class ProductSummary(BaseModel):
     id: str | None = None
     name: str

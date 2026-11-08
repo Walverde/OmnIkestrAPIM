@@ -25,9 +25,11 @@ def _split_env_paths(raw_value: str | None) -> list[str]:
 def _resolve_watch_directories() -> tuple[Path, ...]:
     configured_roots = _split_env_paths(os.getenv("WATCH_DIRS") or os.getenv("WATCH_DIR"))
     if not configured_roots:
-        configured_roots = _split_env_paths(os.getenv("PRODUCT_ROOTS")) or ["/data/products"]
+        configured_roots = _split_env_paths(os.getenv("PRODUCT_ROOTS"))
     if not configured_roots:
-        configured_roots = ["/data/products"]
+        default_root = Path.cwd() / "data" / "products"
+        default_root.mkdir(parents=True, exist_ok=True)
+        configured_roots = [str(default_root)]
 
     resolved_roots: list[Path] = []
     seen: set[str] = set()

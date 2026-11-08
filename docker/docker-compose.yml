@@ -37,7 +37,7 @@ services:
     volumes:
       - ../services/backend:/app
       - type: bind
-        source: "${PRODUCTS_DIR:-../Products}"
+        source: "${PRODUCTS_DIR:-../data/products}"
         target: /data/products
     depends_on:
       db:
@@ -65,7 +65,7 @@ services:
     volumes:
       - ../services/watcher:/app
       - type: bind
-        source: "${PRODUCTS_DIR:-../Products}"
+        source: "${PRODUCTS_DIR:-../data/products}"
         target: /data/products
     depends_on:
       - backend

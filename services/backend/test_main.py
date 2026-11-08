@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
 from backend_core import runtime
+from backend_core.api.config import restore_saved_product_roots
+from backend_core.models import AppSettingRecord
 from main import (
     Base,
     ProductEvent,
@@ -416,20 +418,130 @@ def test_local_picker_token_is_not_cacheable(monkeypatch):
     assert response.headers["cache-control"] == "no-store"
 
 
-def test_product_roots_can_be_updated_in_memory(monkeypatch):
-    previous_roots = list(__import__("main").PRODUCT_ROOTS)
-    monkeypatch.setattr(runtime, "PRODUCT_ROOTS", tuple(previous_roots))
-    monkeypatch.setattr(runtime, "PRODUCTS_ROOT", previous_roots[0])
+def test_product_roots_are_validated_and_persisted(tmp_path, monkeypatch):
+    database = create_engine(f"sqlite:///{tmp_path / 'settings.db'}")
+    Base.metadata.create_all(database)
+    allowed_root = tmp_path / "mounted-products"
+    selected_root = allowed_root / "selected"
+    selected_root.mkdir(parents=True)
+    monkeypatch.setattr(runtime, "ALLOWED_PRODUCT_ROOTS", (allowed_root,))
+    monkeypatch.setattr(runtime, "PRODUCT_ROOTS", (allowed_root,))
+    monkeypatch.setattr(runtime, "PRODUCTS_ROOT", allowed_root)
 
+    def override_get_db():
+        with Session(database) as session:
+            yield session
+
+    app.dependency_overrides.clear()
+    app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
     response = client.post(
         "/api/config/product-roots",
-        json={"roots": ["/tmp/omnikestr-products"]},
+        json={"roots": [str(selected_root)]},
     )
 
     assert response.status_code == 200
-    assert response.json()["roots"] == ["/tmp/omnikestr-products"]
-    assert __import__("main").PRODUCTS_ROOT == Path("/tmp/omnikestr-products")
+    assert response.json()["roots"] == [selected_root.as_posix()]
+    assert runtime.PRODUCTS_ROOT == selected_root.resolve()
+    with Session(database) as session:
+        assert session.get(AppSettingRecord, "product_roots").value == (
+            f'["{selected_root.as_posix()}"]'
+        )
+        assert session.get(AppSettingRecord, "setup_completed").value == "true"
+        runtime.apply_product_roots((allowed_root,))
+        restore_saved_product_roots(session)
+    assert runtime.PRODUCTS_ROOT == selected_root.resolve()
+
+    rejected = client.post(
+        "/api/config/product-roots",
+        json={"roots": [str(tmp_path)]},
+    )
+    assert rejected.status_code == 400
+    empty_root = client.post(
+        "/api/config/product-roots",
+        json={"roots": [""]},
+    )
+    assert empty_root.status_code == 400
+
+    client.close()
+    app.dependency_overrides.clear()
+    database.dispose()
+
+
+def test_product_root_defaults_to_local_data_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PRODUCT_ROOTS", raising=False)
+    monkeypatch.delenv("PRODUCTS_ROOT", raising=False)
+
+    roots = runtime._resolve_product_roots()
+
+    assert roots == ((tmp_path / "data" / "products").resolve(),)
+    assert roots[0].is_dir()
+
+
+def test_setup_browser_creates_directories_only_inside_mounted_root(
+    tmp_path, monkeypatch
+):
+    database = create_engine(f"sqlite:///{tmp_path / 'setup.db'}")
+    Base.metadata.create_all(database)
+    product_root = tmp_path / "mounted-products"
+    product_root.mkdir()
+    monkeypatch.setattr(runtime, "ALLOWED_PRODUCT_ROOTS", (product_root,))
+    app.dependency_overrides.clear()
+
+    def override_get_db():
+        with Session(database) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+
+    browse = client.get("/api/setup/browse", params={"path": str(product_root)})
+    assert browse.status_code == 200
+    assert browse.json()["current"] == product_root.as_posix()
+
+    created = client.post(
+        "/api/setup/folders",
+        json={"parent": str(product_root), "name": "Inventario"},
+    )
+    assert created.status_code == 201
+    assert Path(created.json()["path"]).is_dir()
+
+    traversal = client.post(
+        "/api/setup/folders",
+        json={"parent": str(product_root), "name": "../outside"},
+    )
+    assert traversal.status_code == 400
+
+    outside = client.get("/api/setup/browse", params={"path": str(tmp_path)})
+    assert outside.status_code == 400
+
+    client.close()
+    app.dependency_overrides.clear()
+    database.dispose()
+
+
+def test_first_visit_shows_onboarding_until_product_root_is_saved(product_api):
+    client, database, product_root, _, _ = product_api
+    with Session(database) as session:
+        session.query(ProductRecord).delete()
+        session.commit()
+
+    onboarding = client.get("/")
+    assert onboarding.status_code == 200
+    assert "Onde estão seus produtos?" in onboarding.text
+
+    selected = client.post(
+        "/api/config/product-roots",
+        json={"roots": [str(product_root)]},
+    )
+    assert selected.status_code == 200
+    with Session(database) as session:
+        assert session.get(AppSettingRecord, "setup_completed").value == "true"
+
+    dashboard = client.get("/")
+    assert dashboard.status_code == 200
+    assert "Painel geral" in dashboard.text
 
 
 @pytest.fixture
@@ -462,6 +574,7 @@ def product_api(tmp_path, monkeypatch):
     app.dependency_overrides[get_db] = override_get_db
     monkeypatch.setattr(runtime, "PRODUCT_ROOTS", (product_root,))
     monkeypatch.setattr(runtime, "PRODUCTS_ROOT", product_root)
+    monkeypatch.setattr(runtime, "ALLOWED_PRODUCT_ROOTS", (product_root,))
     with Session(database) as session:
         _sync_product_catalog(session, product_root)
 

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Primeiros passos | OmnIkestrAPIM</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Aptos", "Segoe UI", sans-serif;
+      color: #1d3029;
+      background: #f3f5f1;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    header {
+      padding: 18px max(24px, calc((100% - 880px) / 2));
+      color: white;
+      background: #173f34;
+      border-bottom: 4px solid #c5dc87;
+      font-weight: 700;
+    }
+    main { width: min(880px, calc(100% - 32px)); margin: 52px auto; }
+    h1 { margin: 0; font: 500 clamp(30px, 5vw, 42px) Georgia, serif; }
+    .intro { max-width: 650px; color: #687870; line-height: 1.6; }
+    .panel {
+      margin-top: 28px;
+      padding: 24px;
+      background: white;
+      border: 1px solid #d8e0da;
+    }
+    .path { padding: 12px; overflow-wrap: anywhere; background: #f2f5ef; font-family: Consolas, monospace; }
+    .folders { min-height: 180px; margin: 14px 0; }
+    .folder {
+      display: block;
+      width: 100%;
+      padding: 13px 10px;
+      color: #1d3029;
+      text-align: left;
+      background: white;
+      border: 0;
+      border-bottom: 1px solid #e8ede8;
+      cursor: pointer;
+    }
+    .folder:hover { background: #f2f6ef; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    button, input {
+      min-height: 42px;
+      padding: 9px 13px;
+      font: inherit;
+    }
+    button { border: 1px solid #1e5b46; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .primary { color: white; background: #1e5b46; }
+    .secondary { color: #1d3029; background: white; }
+    input { flex: 1 1 220px; border: 1px solid #d8e0da; }
+    #status { min-height: 24px; color: #687870; }
+    #status[data-error="true"] { color: #9a3e32; }
+    .note { color: #687870; font-size: 13px; line-height: 1.5; }
+    @media (max-width: 540px) {
+      main { margin: 32px auto; }
+      .panel { padding: 18px; }
+      .actions button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header>OmnIkestrAPIM · Configuração inicial</header>
+  <main>
+    <p style="color:#bd644a;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;">Primeiros passos</p>
+    <h1>Onde estão seus produtos?</h1>
+    <p class="intro">Escolha a pasta que contém os diretórios dos produtos. No TrueNAS, ela precisa estar montada no aplicativo antes de aparecer aqui.</p>
+    <section class="panel" aria-label="Selecionar pasta de produtos">
+      <h2>Pastas disponíveis</h2>
+      <p class="path" id="current-path">Carregando pastas...</p>
+      <div class="folders" id="folders" aria-live="polite"></div>
+      <div class="actions">
+        <button id="up-button" class="secondary" type="button" disabled>Voltar</button>
+        <input id="new-folder-name" type="text" maxlength="128" placeholder="Nome da nova pasta">
+        <button id="create-button" class="secondary" type="button">Criar pasta</button>
+        <button id="select-button" class="primary" type="button" disabled>Usar esta pasta</button>
+      </div>
+      <p id="status" role="status" aria-live="polite"></p>
+      <p class="note">Por segurança, o navegador mostra apenas pastas já montadas e descendentes diretos delas. No primeiro uso, os arquivos originais não são movidos.</p>
+    </section>
+  </main>
+  <script>
+    const currentPath = document.querySelector("#current-path");
+    const folders = document.querySelector("#folders");
+    const upButton = document.querySelector("#up-button");
+    const createButton = document.querySelector("#create-button");
+    const selectButton = document.querySelector("#select-button");
+    const newFolderName = document.querySelector("#new-folder-name");
+    const status = document.querySelector("#status");
+    let activePath = null;
+    let parentPath = null;
+
+    function showStatus(message, isError = false) {
+      status.textContent = message;
+      status.dataset.error = String(isError);
+    }
+
+    async function requestJson(url, options = {}) {
+      const response = await fetch(url, {
+        ...options,
+        headers: options.headers || {},
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body.detail || "Não foi possível concluir a operação.");
+      }
+      return body;
+    }
+
+    async function browse(path) {
+      folders.replaceChildren();
+      currentPath.textContent = "Carregando...";
+      try {
+        const query = path ? `?${new URLSearchParams({ path })}` : "";
+        const result = await requestJson(`/api/setup/browse${query}`);
+        if (!result.current) {
+          currentPath.textContent = "Volumes disponíveis";
+          activePath = null;
+          parentPath = null;
+          selectButton.disabled = true;
+          for (const directory of result.directories) {
+            addFolderButton(directory);
+          }
+          if (!result.directories.length) {
+            folders.textContent = "Nenhum volume de produtos disponível. Verifique a montagem do volume no Docker/TrueNAS.";
+          }
+        } else {
+          activePath = result.current;
+          parentPath = result.parent;
+          currentPath.textContent = activePath;
+          selectButton.disabled = false;
+          for (const directory of result.directories) {
+            addFolderButton(directory);
+          }
+          if (!result.directories.length) {
+            folders.textContent = "Esta pasta ainda não contém subpastas. Você pode criar uma ou selecioná-la como raiz.";
+          }
+        }
+        upButton.disabled = !parentPath;
+      } catch (error) {
+        currentPath.textContent = "Pastas indisponíveis";
+        showStatus(error.message, true);
+      }
+    }
+
+    function addFolderButton(directory) {
+      const button = document.createElement("button");
+      button.className = "folder";
+      button.type = "button";
+      button.textContent = `📁  ${directory.name}`;
+      button.addEventListener("click", () => browse(directory.path));
+      folders.append(button);
+    }
+
+    upButton.addEventListener("click", () => {
+      if (parentPath) browse(parentPath);
+    });
+
+    createButton.addEventListener("click", async () => {
+      const name = newFolderName.value.trim();
+      if (!activePath || !name) {
+        showStatus("Escolha uma pasta montada e informe o nome da nova pasta.", true);
+        return;
+      }
+      createButton.disabled = true;
+      try {
+        const result = await requestJson("/api/setup/folders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parent: activePath, name }),
+        });
+        newFolderName.value = "";
+        showStatus(`Pasta criada: ${result.name}`);
+        await browse(activePath);
+      } catch (error) {
+        showStatus(error.message, true);
+      } finally {
+        createButton.disabled = false;
+      }
+    });
+
+    selectButton.addEventListener("click", async () => {
+      if (!activePath) return;
+      selectButton.disabled = true;
+      showStatus("Validando a pasta e indexando os produtos...");
+      try {
+        await requestJson("/api/config/product-roots", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roots: [activePath] }),
+        });
+        window.location.assign("/");
+      } catch (error) {
+        showStatus(error.message, true);
+        selectButton.disabled = false;
+      }
+    });
+
+    async function initialize() {
+      try {
+        const setup = await requestJson("/api/setup/status");
+        const startingPath = setup.selected_root || setup.available_roots[0] || null;
+        await browse(startingPath);
+      } catch (error) {
+        showStatus(error.message, true);
+      }
+    }
+
+    initialize();
+  </script>
+</body>
+</html>

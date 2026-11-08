@@ -5,7 +5,10 @@ from fastapi import FastAPI
 from sqlalchemy.orm import Session
 
 from backend_core import runtime
-from backend_core.api.config import router as config_router
+from backend_core.api.config import (
+    restore_saved_product_roots,
+    router as config_router,
+)
 from backend_core.api.dependencies import get_db
 from backend_core.api.events import router as events_router
 from backend_core.api.local import router as local_router
@@ -96,6 +99,7 @@ def _run_migrations() -> None:
 async def lifespan(_: FastAPI):
     _run_migrations()
     with SessionLocal() as db:
+        restore_saved_product_roots(db)
         _sync_product_catalog_for_roots(db, runtime.PRODUCT_ROOTS)
     yield
 

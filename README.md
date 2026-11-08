@@ -9,6 +9,14 @@ For local development, start the development stack from the repository root:
 docker compose -f docker/docker-compose.yml up -d --build
 ```
 
+On Linux, the one-time bootstrap can create `data/products`, generate a
+permission-restricted `.env` with a random PostgreSQL password, and start the
+development containers:
+
+```bash
+bash setup.sh
+```
+
 The backend and watcher read the product roots from environment configuration. Set `PRODUCT_ROOTS` to a comma-separated list of directories, or keep the default single-root setup with `PRODUCTS_ROOT=/data/products`. The legacy Windows helper remains available as an optional tool, but it is not required for the default flow.
 
 Example environment values:
@@ -37,3 +45,11 @@ For the initial TrueNAS SCALE 25.10 Custom App deployment, use the production
 Compose file and follow the dataset, image publishing, permissions, and security
 steps in [the TrueNAS installation guide](docs/deployment/truenas-scale-25.10.md).
 Do not use the development Compose file directly on production data.
+
+On first access to `http://localhost:8000`, the setup wizard lets you choose or
+create a product folder inside the mounted product volume. The selection is
+stored in PostgreSQL and restored on the next backend start. It cannot mount
+arbitrary host folders; Docker/TrueNAS must mount those folders into the
+container first. A saved selection in the database takes precedence over the
+bootstrap environment default; use the settings screen or update the saved
+configuration to change it later.

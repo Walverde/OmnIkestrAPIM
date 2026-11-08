@@ -24,12 +24,18 @@ registry no TrueNAS antes de instalar.
 
 ## Preparar os datasets
 
-Crie os diretórios/datasets antes de instalar o app. No Compose de exemplo,
-substitua `POOL_NAME` pelo nome real do pool:
+Crie os diretórios/datasets antes de instalar o app. O Compose versionado está
+preenchido para os caminhos informados para este TrueNAS:
 
-- `/mnt/POOL_NAME/products` — cópia de teste dos produtos.
-- `/mnt/POOL_NAME/apps/omnikestr/postgres` — diretório persistente exclusivo do
+- `/mnt/gbZaid/Omnikestrapm/products` — dataset montado para os produtos.
+- `/mnt/gbZaid/Omnikestrapm/postgres` — diretório persistente exclusivo do
   PostgreSQL.
+
+Se o pool ou os nomes dos datasets forem diferentes no seu servidor, atualize
+as ocorrências correspondentes em
+`docker/docker-compose.truenas.yml`. Faça a primeira instalação com uma cópia
+de teste dos produtos; não use dados únicos de produção antes de validar o
+backup e a restauração.
 
 O Compose usa `create_host_path: false` para que caminhos incorretos não criem
 diretórios vazios silenciosamente. Configure ACL/permissões do dataset de produtos para que o usuário do container
@@ -56,8 +62,10 @@ usar outra versão, atualize as duas tags de imagem em
 1. Abra **Apps** no TrueNAS e escolha a opção de instalar um **Custom App** via
    YAML/Compose.
 2. Cole o conteúdo de `docker/docker-compose.truenas.yml` no editor do app.
-3. Substitua todas as ocorrências de `/mnt/POOL_NAME` pelo caminho do pool e
-   confirme que os dois caminhos existem.
+3. Confirme que `/mnt/gbZaid/Omnikestrapm/products` e
+   `/mnt/gbZaid/Omnikestrapm/postgres` existem no TrueNAS e correspondem aos
+   datasets preparados. Se necessário, ajuste os caminhos no YAML antes de
+   colá-lo.
 4. Gere uma senha aleatória hexadecimal com 32 bytes (por exemplo,
    `openssl rand -hex 32`) em uma máquina confiável. Substitua
    `REPLACE_WITH_RANDOM_HEX_PASSWORD` pelas mesmas 64 letras/números nas duas

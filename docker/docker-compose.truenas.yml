@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: REPLACE_WITH_RANDOM_HEX_PASSWORD
     volumes:
       - type: bind
-        source: /mnt/POOL_NAME/apps/omnikestr/postgres
+        source: /mnt/gbZaid/Omnikestrapm/postgres
         target: /var/lib/postgresql/data
         bind:
           create_host_path: false
@@ -35,7 +35,7 @@ services:
       PGID: "568"
     volumes:
       - type: bind
-        source: /mnt/POOL_NAME/products
+        source: /mnt/gbZaid/Omnikestrapm/products
         target: /data/products
         bind:
           create_host_path: false
@@ -43,11 +43,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -68,7 +64,7 @@ services:
       PGID: "568"
     volumes:
       - type: bind
-        source: /mnt/POOL_NAME/products
+        source: /mnt/gbZaid/Omnikestrapm/products
         target: /data/products
         bind:
           create_host_path: false

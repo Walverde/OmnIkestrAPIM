@@ -32,5 +32,8 @@ COPY . .
 # Expõe a porta que o backend vai rodar
 EXPOSE 8000
 
-# Comando para iniciar o servidor FastAPI
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Comando para iniciar o servidor FastAPI modular
+ENV BUILD_VERSION=${BUILD_VERSION}
+ENV BUILD_COMMIT=${BUILD_COMMIT}
+ENV BUILD_DATE=${BUILD_DATE}
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -38,7 +38,7 @@ services:
           exit 1
         fi
         export DATABASE_URL="postgresql+psycopg2://$${POSTGRES_USER}:$${DB_PASSWORD}@db:5432/$${POSTGRES_DB}"
-        exec uvicorn main:app --app-dir /app --host 0.0.0.0 --port 8000
+        exec uvicorn app:app --app-dir /app --host 0.0.0.0 --port 8000
     ports:
       - "${TRUENAS_LAN_IP:-192.168.100.58}:8000:8000"
     environment:

@@ -21,28 +21,27 @@ services:
     build:
       context: ../services/backend
       dockerfile: Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-0.2.0}
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     container_name: omnikestr_backend
     restart: always
-    user: "${PUID:-1000}:${PGID:-1000}"
     ports:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-omnikestr}:${POSTGRES_PASSWORD:-omnikestr_dev}@db:5432/${POSTGRES_DB:-omnikestr}
-      - PRODUCTS_ROOT=${PRODUCTS_ROOT:-/data/products}
-      - PRODUCT_ROOTS=${PRODUCT_ROOTS:-/data/products}
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
+      - PRODUCTS_ROOT=/data/products
       - PICKER_TOKEN=${PICKER_TOKEN:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
+      - BUILD_VERSION=${BUILD_VERSION:-0.2.0}
+      - BUILD_COMMIT=${BUILD_COMMIT:-unknown}
+      - BUILD_DATE=${BUILD_DATE:-unknown}
     volumes:
       - ../services/backend:/app
       - type: bind
-        source: "${PRODUCTS_DIR:-../../OmnIkestrAPIM-Products}"
+        source: "${PRODUCTS_DIR:-../Products}"
         target: /data/products
-        bind:
-          create_host_path: false
     depends_on:
       db:
         condition: service_healthy
@@ -55,24 +54,16 @@ services:
       dockerfile: Dockerfile
     container_name: omnikestr_watcher
     restart: always
-    user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       - PYTHONUNBUFFERED=1
-      - WATCH_DIR=${WATCH_DIR:-/data/products}
-      - WATCH_DIRS=${WATCH_DIRS:-/data/products}
-      - WATCH_IGNORE_PATTERNS=${WATCH_IGNORE_PATTERNS:-}
-      - PRODUCT_ROOTS=${PRODUCT_ROOTS:-/data/products}
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
+      - WATCH_DIR=/data/products
       # Caso o watcher precise se comunicar diretamente com o backend:
       - BACKEND_URL=http://backend:8000
     volumes:
       - ../services/watcher:/app
       - type: bind
-        source: "${PRODUCTS_DIR:-../../OmnIkestrAPIM-Products}"
+        source: "${PRODUCTS_DIR:-../Products}"
         target: /data/products
-        bind:
-          create_host_path: false
     depends_on:
       - backend
     networks:

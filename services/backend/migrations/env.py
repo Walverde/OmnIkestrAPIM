@@ -6,7 +6,8 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from main import Base
+from backend_core.database import Base
+import backend_core.models  # noqa: F401
 
 config = context.config
 database_url = os.getenv("DATABASE_URL")

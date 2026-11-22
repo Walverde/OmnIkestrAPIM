@@ -149,7 +149,6 @@ activemq-data/
 
 # Environments
 .env
-.env.setup.*
 .folder-picker-token
 .envrc
 .venv
@@ -204,13 +203,6 @@ cython_debug/
 # .vscode/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
-
-# Local product files and development database
-/data/
-/Products/
-/products/
-/secrets/
-/backups/
 
 # Ruff stuff:
 .ruff_cache/

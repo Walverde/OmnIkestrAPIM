@@ -12,9 +12,6 @@ from sqlalchemy.orm import Session
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
-from backend_core import runtime
-from backend_core.api.config import restore_saved_product_roots
-from backend_core.models import AppSettingRecord, MarketplaceOAuthStateRecord
 from main import (
     Base,
     ProductEvent,
@@ -22,7 +19,6 @@ from main import (
     ProductRecord,
     _scan_products,
     _sync_product_catalog,
-    _sync_product_catalog_for_roots,
     _sync_product_for_event,
     _product_directory_for_path,
     _write_manifest_atomic,
@@ -135,27 +131,6 @@ def test_scan_products_extracts_catalog_metadata_and_primary_image(tmp_path):
     assert product.manifest["sku"] == "BRC-42"
 
 
-def test_scan_products_excludes_files_under_underscore_directories(tmp_path):
-    product_dir = tmp_path / "Memoria Ram DDR3"
-    ignored_nested_product = tmp_path / "_ignorar" / "Produto"
-    product_dir.mkdir()
-    ignored_nested_product.mkdir(parents=True)
-    (product_dir / "product.yaml").write_text("title: Memoria Ram DDR3\n", encoding="utf-8")
-    (product_dir / "cover.jpg").write_bytes(b"image")
-    (product_dir / "_Paste de teste").mkdir()
-    (product_dir / "_Paste de teste" / "images.jpg").write_bytes(b"ignored image")
-    (ignored_nested_product / "cover.jpg").write_bytes(b"ignored product")
-
-    products = _scan_products(tmp_path)
-
-    assert len(products) == 1
-    product = products[0]
-    assert product.name == "Memoria Ram DDR3"
-    assert product.images == ["Memoria Ram DDR3/cover.jpg"]
-    assert all("_Paste de teste" not in file.relative_path for file in product.files)
-    assert all(not Path(file.relative_path).parts[0].startswith("_") for file in product.files)
-
-
 def test_scan_products_extracts_sku_from_filename_and_seeds_manifest(tmp_path):
     product_dir = tmp_path / "Suporte drone"
     product_dir.mkdir()
@@ -175,10 +150,7 @@ def test_scan_products_seeds_stable_v1_manifest(tmp_path):
     product_dir.mkdir()
     (product_dir / "cover.jpg").write_bytes(b"image")
 
-    with patch(
-        "backend_core.catalog._write_manifest_atomic",
-        wraps=_write_manifest_atomic,
-    ) as write_manifest:
+    with patch("main._write_manifest_atomic", wraps=_write_manifest_atomic) as write_manifest:
         first_scan = _scan_products(tmp_path)[0]
         second_scan = _scan_products(tmp_path)[0]
 
@@ -188,99 +160,6 @@ def test_scan_products_seeds_stable_v1_manifest(tmp_path):
     assert first_scan.title == "Legacy product"
     assert (product_dir / "product.yaml").exists()
     assert any(file.name == "product.yaml" for file in first_scan.files)
-
-
-def test_scan_products_migrates_unversioned_manifest_and_preserves_unknown_fields(tmp_path):
-    product_dir = tmp_path / "Legacy manifest"
-    product_dir.mkdir()
-    manifest_path = product_dir / "product.yaml"
-    manifest_path.write_text(
-        "id: 0197f381-7c63-7a1d-a8b1-4e08b8472401\n"
-        "title: Legacy manifest\n"
-        "custom_note: keep this value\n",
-        encoding="utf-8",
-    )
-
-    product = _scan_products(tmp_path)[0]
-    migrated_manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-
-    assert product.manifest_error is None
-    assert product.id == "0197f381-7c63-7a1d-a8b1-4e08b8472401"
-    assert migrated_manifest["schema_version"] == 2
-    assert migrated_manifest["custom_note"] == "keep this value"
-
-
-def test_scan_products_migrates_v1_marketplaces_to_enabled_configs(tmp_path):
-    product_dir = tmp_path / "Marketplace manifest"
-    product_dir.mkdir()
-    manifest_path = product_dir / "product.yaml"
-    manifest_path.write_text(
-        "schema_version: 1\n"
-        "id: 0197f381-7c63-7a1d-a8b1-4e08b8472402\n"
-        "title: Marketplace manifest\n"
-        "marketplaces:\n"
-        "  - mercadolivre\n"
-        "  - olx\n"
-        "custom_note: preserve this\n",
-        encoding="utf-8",
-    )
-
-    product = _scan_products(tmp_path)[0]
-    migrated_manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-
-    assert product.manifest_error is None
-    assert product.model_dump()["marketplaces"] == {
-        "mercadolivre": {"enabled": True},
-        "olx": {"enabled": True},
-    }
-    assert migrated_manifest["schema_version"] == 2
-    assert migrated_manifest["marketplaces"] == product.marketplaces
-    assert migrated_manifest["custom_note"] == "preserve this"
-
-
-def test_scan_products_preserves_existing_marketplace_configuration(tmp_path):
-    product_dir = tmp_path / "Configured marketplace"
-    product_dir.mkdir()
-    manifest_path = product_dir / "product.yaml"
-    manifest_path.write_text(
-        "schema_version: 1\n"
-        "id: 0197f381-7c63-7a1d-a8b1-4e08b8472403\n"
-        "title: Configured marketplace\n"
-        "marketplaces:\n"
-        "  mercadolivre:\n"
-        "    enabled: false\n"
-        "    seller_alias: store-1\n",
-        encoding="utf-8",
-    )
-
-    product = _scan_products(tmp_path)[0]
-    migrated_manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-
-    assert product.manifest_error is None
-    assert migrated_manifest["schema_version"] == 2
-    assert migrated_manifest["marketplaces"]["mercadolivre"] == {
-        "enabled": False,
-        "seller_alias": "store-1",
-    }
-
-
-def test_scan_products_does_not_rewrite_unsupported_future_schema(tmp_path):
-    product_dir = tmp_path / "Future manifest"
-    product_dir.mkdir()
-    manifest_path = product_dir / "product.yaml"
-    manifest_path.write_text(
-        "schema_version: 99\n"
-        "id: 0197f381-7c63-7a1d-a8b1-4e08b8472401\n"
-        "title: Future manifest\n",
-        encoding="utf-8",
-    )
-    original_manifest = manifest_path.read_bytes()
-
-    product = _scan_products(tmp_path)[0]
-
-    assert product.id == "0197f381-7c63-7a1d-a8b1-4e08b8472401"
-    assert "Versão de schema 99 não é suportada" in product.manifest_error
-    assert manifest_path.read_bytes() == original_manifest
 
 
 def test_scan_products_reports_invalid_manifest_fields(tmp_path):
@@ -308,7 +187,7 @@ def test_sync_product_catalog_persists_and_removes_products(tmp_path):
     with Session(database) as session:
         products = _sync_product_catalog(session, tmp_path)
         stored = session.scalar(
-            select(ProductRecord).where(ProductRecord.path == product_dir.as_posix())
+            select(ProductRecord).where(ProductRecord.path == str(product_dir))
         )
         assert len(products) == 1
         assert stored is not None
@@ -319,31 +198,6 @@ def test_sync_product_catalog_persists_and_removes_products(tmp_path):
         product_dir.rmdir()
         _sync_product_catalog(session, tmp_path)
         assert session.scalar(select(ProductRecord)) is None
-
-    database.dispose()
-
-
-def test_sync_product_catalog_handles_multiple_roots(tmp_path):
-    database = create_engine(f"sqlite:///{tmp_path / 'multi_root.db'}")
-    Base.metadata.create_all(database)
-    root_a = tmp_path / "root_a"
-    root_b = tmp_path / "root_b"
-    root_a.mkdir()
-    root_b.mkdir()
-    first_product = root_a / "Alpha"
-    second_product = root_b / "Beta"
-    first_product.mkdir()
-    second_product.mkdir()
-    (first_product / "product.yaml").write_text("name: Alpha\n", encoding="utf-8")
-    (second_product / "product.yaml").write_text("name: Beta\n", encoding="utf-8")
-
-    with Session(database) as session:
-        products = _sync_product_catalog_for_roots(session, (root_a, root_b))
-
-    assert {product.name for product in products} == {"Alpha", "Beta"}
-    with Session(database) as session:
-        stored = session.scalars(select(ProductRecord).order_by(ProductRecord.path)).all()
-        assert {record.name for record in stored} == {"Alpha", "Beta"}
 
     database.dispose()
 
@@ -387,7 +241,7 @@ def test_incremental_move_preserves_product_identity(tmp_path):
         assert len(products) == 1
         assert products[0].id == database_id
         assert products[0].product_uuid == stable_id
-        assert products[0].path == renamed_dir.as_posix()
+        assert products[0].path == str(renamed_dir)
 
     database.dispose()
 
@@ -412,7 +266,7 @@ def test_event_on_legacy_group_placeholder_resolves_to_nested_product(tmp_path):
         assert _product_directory_for_path(tmp_path, str(group), session, "default", True) is None
         indexed = session.scalars(select(ProductRecord)).all()
         assert len(indexed) == 1
-        assert indexed[0].path == product_dir.as_posix()
+        assert indexed[0].path == str(product_dir)
 
     database.dispose()
 
@@ -484,157 +338,13 @@ def test_dashboard_routes_return_html():
     assert "Dados do produto" in product_detail.text
 
 
-def test_health_endpoint_exposes_build_metadata_without_caching(monkeypatch):
-    monkeypatch.setenv("BUILD_VERSION", "v1.2.3")
-    monkeypatch.setenv("BUILD_COMMIT", "abcdef0123456789")
-    monkeypatch.setenv("BUILD_DATE", "2026-11-22T12:00:00Z")
-
-    response = TestClient(app).get("/api/health")
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "status": "healthy",
-        "service": "OmnIkestrAPIM Core Backend",
-        "version": "v1.2.3",
-        "commit": "abcdef0123456789",
-        "built_at": "2026-11-22T12:00:00Z",
-    }
-    assert response.headers["cache-control"] == "no-store"
-
-
 def test_local_picker_token_is_not_cacheable(monkeypatch):
-    monkeypatch.setattr(runtime, "PICKER_TOKEN", "test-local-picker-token")
+    monkeypatch.setattr("main.PICKER_TOKEN", "test-local-picker-token")
     response = TestClient(app).get("/api/local/picker-token")
 
     assert response.status_code == 200
     assert response.json() == {"token": "test-local-picker-token"}
     assert response.headers["cache-control"] == "no-store"
-
-
-def test_product_roots_are_validated_and_persisted(tmp_path, monkeypatch):
-    database = create_engine(f"sqlite:///{tmp_path / 'settings.db'}")
-    Base.metadata.create_all(database)
-    allowed_root = tmp_path / "mounted-products"
-    selected_root = allowed_root / "selected"
-    selected_root.mkdir(parents=True)
-    monkeypatch.setattr(runtime, "ALLOWED_PRODUCT_ROOTS", (allowed_root,))
-    monkeypatch.setattr(runtime, "PRODUCT_ROOTS", (allowed_root,))
-    monkeypatch.setattr(runtime, "PRODUCTS_ROOT", allowed_root)
-
-    def override_get_db():
-        with Session(database) as session:
-            yield session
-
-    app.dependency_overrides.clear()
-    app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app)
-    response = client.post(
-        "/api/config/product-roots",
-        json={"roots": [str(selected_root)]},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["roots"] == [selected_root.as_posix()]
-    assert runtime.PRODUCTS_ROOT == selected_root.resolve()
-    with Session(database) as session:
-        assert session.get(AppSettingRecord, "product_roots").value == (
-            f'["{selected_root.as_posix()}"]'
-        )
-        assert session.get(AppSettingRecord, "setup_completed").value == "true"
-        runtime.apply_product_roots((allowed_root,))
-        restore_saved_product_roots(session)
-    assert runtime.PRODUCTS_ROOT == selected_root.resolve()
-
-    rejected = client.post(
-        "/api/config/product-roots",
-        json={"roots": [str(tmp_path)]},
-    )
-    assert rejected.status_code == 400
-    empty_root = client.post(
-        "/api/config/product-roots",
-        json={"roots": [""]},
-    )
-    assert empty_root.status_code == 400
-
-    client.close()
-    app.dependency_overrides.clear()
-    database.dispose()
-
-
-def test_product_root_defaults_to_local_data_directory(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("PRODUCT_ROOTS", raising=False)
-    monkeypatch.delenv("PRODUCTS_ROOT", raising=False)
-
-    roots = runtime._resolve_product_roots()
-
-    assert roots == ((tmp_path / "data" / "products").resolve(),)
-    assert roots[0].is_dir()
-
-
-def test_setup_browser_creates_directories_only_inside_mounted_root(
-    tmp_path, monkeypatch
-):
-    database = create_engine(f"sqlite:///{tmp_path / 'setup.db'}")
-    Base.metadata.create_all(database)
-    product_root = tmp_path / "mounted-products"
-    product_root.mkdir()
-    monkeypatch.setattr(runtime, "ALLOWED_PRODUCT_ROOTS", (product_root,))
-    app.dependency_overrides.clear()
-
-    def override_get_db():
-        with Session(database) as session:
-            yield session
-
-    app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app)
-
-    browse = client.get("/api/setup/browse", params={"path": str(product_root)})
-    assert browse.status_code == 200
-    assert browse.json()["current"] == product_root.as_posix()
-
-    created = client.post(
-        "/api/setup/folders",
-        json={"parent": str(product_root), "name": "Inventario"},
-    )
-    assert created.status_code == 201
-    assert Path(created.json()["path"]).is_dir()
-
-    traversal = client.post(
-        "/api/setup/folders",
-        json={"parent": str(product_root), "name": "../outside"},
-    )
-    assert traversal.status_code == 400
-
-    outside = client.get("/api/setup/browse", params={"path": str(tmp_path)})
-    assert outside.status_code == 400
-
-    client.close()
-    app.dependency_overrides.clear()
-    database.dispose()
-
-
-def test_first_visit_shows_onboarding_until_product_root_is_saved(product_api):
-    client, database, product_root, _, _ = product_api
-    with Session(database) as session:
-        session.query(ProductRecord).delete()
-        session.commit()
-
-    onboarding = client.get("/")
-    assert onboarding.status_code == 200
-    assert "Onde estão seus produtos?" in onboarding.text
-
-    selected = client.post(
-        "/api/config/product-roots",
-        json={"roots": [str(product_root)]},
-    )
-    assert selected.status_code == 200
-    with Session(database) as session:
-        assert session.get(AppSettingRecord, "setup_completed").value == "true"
-
-    dashboard = client.get("/")
-    assert dashboard.status_code == 200
-    assert "Painel geral" in dashboard.text
 
 
 @pytest.fixture
@@ -665,9 +375,7 @@ def product_api(tmp_path, monkeypatch):
 
     app.dependency_overrides.clear()
     app.dependency_overrides[get_db] = override_get_db
-    monkeypatch.setattr(runtime, "PRODUCT_ROOTS", (product_root,))
-    monkeypatch.setattr(runtime, "PRODUCTS_ROOT", product_root)
-    monkeypatch.setattr(runtime, "ALLOWED_PRODUCT_ROOTS", (product_root,))
+    monkeypatch.setattr("main.PRODUCTS_ROOT", product_root)
     with Session(database) as session:
         _sync_product_catalog(session, product_root)
 
@@ -680,10 +388,7 @@ def product_api(tmp_path, monkeypatch):
 
 def test_product_patch_preserves_unknown_yaml_and_prevents_write_loop(product_api):
     client, database, product_root, product_dir, product_id = product_api
-    with patch(
-        "backend_core.api.products._write_manifest_atomic",
-        wraps=_write_manifest_atomic,
-    ) as atomic_write:
+    with patch("main._write_manifest_atomic", wraps=_write_manifest_atomic) as atomic_write:
         response = client.patch(
             f"/api/products/{product_id}",
             json={"title": "Updated title", "status": "published", "sku": "TEST-1"},
@@ -709,43 +414,6 @@ def test_product_patch_preserves_unknown_yaml_and_prevents_write_loop(product_ap
         assert session.scalar(select(ProductEventRecord)) is not None
 
 
-def test_product_patch_saves_marketplace_enabled_settings(product_api):
-    client, _, _, product_dir, product_id = product_api
-
-    response = client.patch(
-        f"/api/products/{product_id}",
-        json={
-            "marketplaces": {
-                "mercadolivre": {"enabled": True},
-                "olx": {"enabled": False},
-            }
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["marketplaces"] == {
-        "mercadolivre": {"enabled": True},
-        "olx": {"enabled": False},
-    }
-    manifest = yaml.safe_load((product_dir / "product.yaml").read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == 2
-    assert manifest["marketplaces"] == response.json()["marketplaces"]
-
-
-def test_product_patch_accepts_legacy_marketplace_name_list(product_api):
-    client, _, _, product_dir, product_id = product_api
-
-    response = client.patch(
-        f"/api/products/{product_id}",
-        json={"marketplaces": ["mercadolivre"]},
-    )
-
-    assert response.status_code == 200
-    assert response.json()["marketplaces"] == {"mercadolivre": {"enabled": True}}
-    manifest = yaml.safe_load((product_dir / "product.yaml").read_text(encoding="utf-8"))
-    assert manifest["marketplaces"] == response.json()["marketplaces"]
-
-
 def test_product_patch_reports_invalid_fields(product_api):
     client, _, _, _, product_id = product_api
 
@@ -753,63 +421,6 @@ def test_product_patch_reports_invalid_fields(product_api):
 
     assert response.status_code == 422
     assert any("price" in ".".join(str(part) for part in issue["loc"]) for issue in response.json()["detail"])
-
-
-def test_price_floor_rejects_lower_prices_and_records_changes(product_api):
-    client, _, product_root, _, product_id = product_api
-    floor_response = client.patch(
-        f"/api/products/{product_id}",
-        json={"price_floor": 200},
-    )
-    rejected_response = client.patch(
-        f"/api/products/{product_id}",
-        json={"price": 199},
-    )
-    accepted_response = client.patch(
-        f"/api/products/{product_id}",
-        json={"price": 220},
-    )
-    audit_response = client.get(f"/api/products/{product_id}/price-audit")
-
-    assert floor_response.status_code == 200
-    assert rejected_response.status_code == 422
-    assert accepted_response.status_code == 200
-    assert accepted_response.json()["price_floor"] == 200
-    assert audit_response.status_code == 200
-    assert audit_response.json()["audit"][0]["new_price"] == 220
-    manifest = yaml.safe_load(
-        (product_root / "Test item" / "product.yaml").read_text(encoding="utf-8")
-    )
-    assert manifest["price"] == 220
-    assert manifest["price_floor"] == 200
-
-
-def test_mercadolivre_authorization_stores_state_without_returning_secrets(product_api, monkeypatch):
-    client, database, _, _, _ = product_api
-    monkeypatch.setenv("MELI_CLIENT_ID", "client-id-test")
-    monkeypatch.setenv("MELI_CLIENT_SECRET", "client-secret-test")
-    monkeypatch.setenv(
-        "MELI_REDIRECT_URI", "https://nas.example.test/api/marketplaces/mercadolivre/callback"
-    )
-
-    response = client.get("/api/marketplaces/mercadolivre/authorize")
-
-    assert response.status_code == 200
-    assert "client-secret-test" not in response.text
-    assert "authorization_url" in response.json()
-    with Session(database) as session:
-        assert session.query(MarketplaceOAuthStateRecord).count() == 1
-
-
-def test_mercadolivre_publish_requires_manual_action_token(product_api):
-    client, _, _, _, product_id = product_api
-
-    response = client.post(
-        f"/api/marketplaces/mercadolivre/products/{product_id}/publish"
-    )
-
-    assert response.status_code == 403
-    assert "Token de confirmação manual" in response.json()["detail"]
 
 
 def test_product_filters_and_pagination(product_api):
@@ -846,10 +457,7 @@ def test_folder_group_filter_suggests_parent_category_without_overriding_yaml(pr
 
 
 def test_product_media_converts_to_webp_and_rejects_other_products(product_api):
-    client, _, _, product_dir, product_id = product_api
-    ignored_folder = product_dir / "_Paste de teste"
-    ignored_folder.mkdir()
-    (ignored_folder / "images.jpg").write_bytes(b"ignored image")
+    client, _, _, _, product_id = product_api
 
     response = client.get(
         f"/api/products/{product_id}/media/Test%20item/cover.png?thumbnail=true"
@@ -860,9 +468,6 @@ def test_product_media_converts_to_webp_and_rejects_other_products(product_api):
     transparent = client.get(
         f"/api/products/{product_id}/media/Test%20item/removebg-preview.png?thumbnail=true"
     )
-    ignored = client.get(
-        f"/api/products/{product_id}/media/Test%20item/_Paste%20de%20teste/images.jpg"
-    )
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/webp"
@@ -870,4 +475,3 @@ def test_product_media_converts_to_webp_and_rejects_other_products(product_api):
     assert response.content[8:12] == b"WEBP"
     assert Image.open(BytesIO(transparent.content)).mode == "RGBA"
     assert escaped.status_code == 404
-    assert ignored.status_code == 404

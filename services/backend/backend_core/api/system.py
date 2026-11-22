@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import runtime
@@ -18,14 +18,16 @@ STATIC_ROOT = Path(__file__).resolve().parents[2] / "static"
 
 
 @router.get("/api/health")
-def health_check(response: Response):
+def health_check(response: Response, db: Session = Depends(get_db)):
     response.headers["Cache-Control"] = "no-store"
+    catalog_updated_at = db.scalar(select(func.max(ProductRecord.scanned_at)))
     return {
         "status": "healthy",
         "service": "OmnIkestrAPIM Core Backend",
-        "version": os.getenv("BUILD_VERSION", "development"),
+        "version": os.getenv("BUILD_VERSION") or "0.2.0",
         "commit": os.getenv("BUILD_COMMIT", "unknown"),
         "built_at": os.getenv("BUILD_DATE", "unknown"),
+        "catalog_updated_at": catalog_updated_at.isoformat() if catalog_updated_at else None,
     }
 
 

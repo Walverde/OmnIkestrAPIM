@@ -652,6 +652,8 @@ The preferred human-editable metadata format is YAML.
 Example:
 
 ```yaml
+schema_version: 2
+
 sku: DELL-5420-001
 
 title: Dell Latitude 5420
@@ -682,7 +684,11 @@ marketplaces:
     enabled: true
 ```
 
-The schema must evolve carefully to maintain backwards compatibility.
+Schema v2 stores channel settings in a mapping keyed by marketplace. Existing
+schema v1 lists are migrated to this shape, with each previously listed channel
+marked `enabled: true`. Unknown product fields and additional per-marketplace
+settings are preserved. The schema must evolve carefully to maintain backwards
+compatibility.
 
 ---
 

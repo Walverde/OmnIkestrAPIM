@@ -1,3 +1,5 @@
+name: omnikestr
+
 services:
   db:
     image: postgres:16-alpine
@@ -7,7 +9,7 @@ services:
       POSTGRES_PASSWORD: REPLACE_WITH_RANDOM_HEX_PASSWORD
     volumes:
       - type: bind
-        source: /mnt/gbZaid/Omnikestrapm/postgres
+        source: /mnt/gbZaid/OmnIkestrAPIM/postgres
         target: /var/lib/postgresql/data
         bind:
           create_host_path: false
@@ -24,6 +26,7 @@ services:
   backend:
     image: ghcr.io/walverde/omnikestrapim-backend:latest
     user: "568:568"
+    command: ["uvicorn", "main:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
     environment:
@@ -35,7 +38,7 @@ services:
       PGID: "568"
     volumes:
       - type: bind
-        source: /mnt/gbZaid/Omnikestrapm/products
+        source: /mnt/gbZaid/OmnIkestrAPIM/products
         target: /data/products
         bind:
           create_host_path: false
@@ -64,7 +67,7 @@ services:
       PGID: "568"
     volumes:
       - type: bind
-        source: /mnt/gbZaid/Omnikestrapm/products
+        source: /mnt/gbZaid/OmnIkestrAPIM/products
         target: /data/products
         bind:
           create_host_path: false

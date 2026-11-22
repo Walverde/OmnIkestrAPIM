@@ -2,7 +2,7 @@ from collections.abc import Callable
 from typing import Any
 
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 class ManifestMigrationError(ValueError):
@@ -15,8 +15,29 @@ def _migrate_unversioned_to_v1(manifest: dict[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def _migrate_v1_to_v2(manifest: dict[str, Any]) -> dict[str, Any]:
+    migrated = dict(manifest)
+    marketplaces = migrated.get("marketplaces", [])
+    if isinstance(marketplaces, list):
+        if not all(isinstance(name, str) for name in marketplaces):
+            raise ManifestMigrationError(
+                "marketplaces no schema v1 precisa ser uma lista de nomes."
+            )
+        migrated["marketplaces"] = {
+            name: {"enabled": True} for name in marketplaces
+        }
+    elif isinstance(marketplaces, dict):
+        migrated["marketplaces"] = {
+            name: {"enabled": value} if isinstance(value, bool) else value
+            for name, value in marketplaces.items()
+        }
+    migrated["schema_version"] = 2
+    return migrated
+
+
 MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     0: _migrate_unversioned_to_v1,
+    1: _migrate_v1_to_v2,
 }
 
 

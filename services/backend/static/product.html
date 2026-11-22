@@ -50,6 +50,9 @@
     .field label { color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }
     .field input,.field select,.field textarea { width:100%; min-height:41px; padding:9px 10px; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:3px; }
     .field textarea { min-height:112px; resize:vertical; line-height:1.5; }
+    .marketplace-options { display:flex; flex-wrap:wrap; gap:12px 18px; }
+    .marketplace-option { display:flex; align-items:center; gap:7px; color:var(--ink)!important; text-transform:none!important; }
+    .marketplace-option input { width:16px; min-height:16px; margin:0; accent-color:var(--forest); }
     .field-error { min-height:0; color:var(--danger); font-size:11px; }
     .field-error:not(:empty) { min-height:15px; }
     .form-actions { display:flex; justify-content:flex-end; gap:9px; margin-top:18px; padding-top:15px; border-top:1px solid var(--line); }
@@ -166,6 +169,28 @@
         const error = element('small', 'field-error'); error.id = `error-${name}`; error.dataset.fieldError = name;
         wrapper.append(labelNode, control, error); grid.append(wrapper);
       };
+      const addMarketplaceField = () => {
+        const wrapper = element('div', 'field full');
+        wrapper.append(element('label', '', 'Canais de venda habilitados'));
+        const options = element('div', 'marketplace-options');
+        const marketplaces = product.marketplaces && !Array.isArray(product.marketplaces)
+          ? product.marketplaces
+          : {};
+        const channelKeys = new Set(['mercadolivre', 'olx', ...Object.keys(marketplaces)]);
+        const channelLabels = { mercadolivre: 'Mercado Livre', olx: 'OLX' };
+        for (const key of [...channelKeys].sort()) {
+          const label = element('label', 'marketplace-option');
+          const checkbox = element('input');
+          checkbox.type = 'checkbox';
+          checkbox.checked = Boolean(marketplaces[key]?.enabled);
+          checkbox.dataset.marketplaceKey = key;
+          const displayName = channelLabels[key] || key.replace(/[_-]+/g, ' ');
+          label.append(checkbox, element('span', '', displayName));
+          options.append(label);
+        }
+        wrapper.append(options);
+        grid.append(wrapper);
+      };
       addField('title','Título',product.title || product.name);
       addField('sku','SKU',product.sku);
       addField('category','Categoria',product.category);
@@ -199,7 +224,7 @@
       addField('price','Preço',product.price,'number');
       addField('cost','Custo',product.cost,'number');
       addField('condition','Condição',product.condition,null,[['','Não definida'],['new','Novo'],['used','Usado'],['refurbished','Recondicionado']]);
-      addField('marketplaces','Marketplaces',(product.marketplaces || []).join(', '));
+      addMarketplaceField();
       addField('description','Descrição',product.description,'textarea',null,true);
       form.append(grid);
       const actions = element('div','form-actions');
@@ -223,6 +248,15 @@
       discard.addEventListener('click', () => render(product));
       form.addEventListener('submit', async (event) => {
         event.preventDefault(); clearErrors(); save.disabled=true; saveState.textContent='Salvando...'; saveState.classList.remove('error');
+        const marketplaces = Object.fromEntries(
+          Object.entries(product.marketplaces || {}).map(([key, config]) => [key, { ...config }]),
+        );
+        for (const checkbox of grid.querySelectorAll('[data-marketplace-key]')) {
+          const key = checkbox.dataset.marketplaceKey;
+          if (checkbox.checked || Object.hasOwn(marketplaces, key)) {
+            marketplaces[key] = { ...(marketplaces[key] || {}), enabled: checkbox.checked };
+          }
+        }
         const body = {
           title: form.elements.title.value,
           sku: form.elements.sku.value || null,
@@ -231,7 +265,7 @@
           price: form.elements.price.value ? Number(form.elements.price.value) : null,
           cost: form.elements.cost.value ? Number(form.elements.cost.value) : null,
           condition: form.elements.condition.value || null,
-          marketplaces: form.elements.marketplaces.value.split(',').map(value => value.trim()).filter(Boolean),
+          marketplaces,
           description: form.elements.description.value || null,
         };
         try {

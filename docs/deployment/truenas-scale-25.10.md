@@ -34,8 +34,8 @@ sucedido permite que o Docker do host baixe as imagens privadas.
 Crie os diretórios/datasets antes de instalar o app. O Compose versionado está
 preenchido para os caminhos informados para este TrueNAS:
 
-- `/mnt/gbZaid/Omnikestrapm/products` — dataset montado para os produtos.
-- `/mnt/gbZaid/Omnikestrapm/postgres` — diretório persistente exclusivo do
+- `/mnt/gbZaid/OmnIkestrAPIM/products` — dataset montado para os produtos.
+- `/mnt/gbZaid/OmnIkestrAPIM/postgres` — diretório persistente exclusivo do
   PostgreSQL.
 
 Se o pool ou os nomes dos datasets forem diferentes no seu servidor, atualize
@@ -71,8 +71,8 @@ prefira fixar as duas imagens numa tag SemVer já validada.
 1. Abra **Apps** no TrueNAS e escolha a opção de instalar um **Custom App** via
    YAML/Compose.
 2. Cole o conteúdo de `docker/docker-compose.truenas.yml` no editor do app.
-3. Confirme que `/mnt/gbZaid/Omnikestrapm/products` e
-   `/mnt/gbZaid/Omnikestrapm/postgres` existem no TrueNAS e correspondem aos
+3. Confirme que `/mnt/gbZaid/OmnIkestrAPIM/products` e
+   `/mnt/gbZaid/OmnIkestrAPIM/postgres` existem no TrueNAS e correspondem aos
    datasets preparados. Se necessário, ajuste os caminhos no YAML antes de
    colá-lo.
 4. Gere uma senha aleatória hexadecimal com 32 bytes (por exemplo,
@@ -114,6 +114,11 @@ migrações SQL manualmente.
 - Para voltar atrás, restaure conjuntamente a versão anterior do app e os
   backups correspondentes. Não apague o dataset de PostgreSQL ao remover ou
   recriar o Custom App.
+- O backend com suporte ao schema v2 migra automaticamente manifests v1 ao
+  indexá-los. A versão anterior do backend não reconhece schema v2; portanto,
+  um rollback após essa migração exige restaurar também os `product.yaml` do
+  backup anterior à atualização, além de voltar as imagens. Não faça rollback
+  apenas das imagens depois que a nova versão tiver migrado os manifests.
 
 Esta primeira versão não monta automaticamente uma pasta escolhida pelo
 usuário na Web UI. O caminho do dataset é configurado no Compose do Custom App.

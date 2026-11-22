@@ -1,8 +1,8 @@
 # OmniKestra (OmnIkestrAPIM) — Roadmap Oficial
 
-**Última atualização:** 08/11/2026
+**Última atualização:** 22/11/2026
 
-**Status geral do projeto:** Em desenvolvimento ativo — primeira stack integrada validada no TrueNAS SCALE; fluxo Zero-Config/onboarding continua em validação.
+**Status geral do projeto:** Em desenvolvimento ativo — Etapa B funcional concluída no TrueNAS SCALE em 22/11/2026; hardening operacional do NAS e fluxo Zero-Config/onboarding continuam em andamento.
 
 **Fonte única de planejamento e decisões:** este documento consolida o roadmap oficial anterior, os rascunhos de roadmap e as decisões dos ADRs 0001 e 0002. Novas tarefas, status e decisões devem ser mantidos somente aqui. `docs/ARCHITECTURE.md` continua como referência descritiva de arquitetura, sem substituir este registro.
 
@@ -59,6 +59,7 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 - [x] Schema v1 exige `title`; inclui `schema_version`, `id` UUID, `sku`, `category`, `price`, `cost`, `condition`, `status`, `marketplaces` e `description`. Um produto inválido é reportado sem impedir a indexação de outras pastas (concluído em 06/10/2026).
 - [x] Manifests sem `schema_version` são tratados como schema 0 e migrados para v1, preservando campos desconhecidos. Versões futuras não suportadas são reportadas sem alteração do arquivo (concluído em 06/11/2026).
 - [x] Cada nova versão do schema deverá ter migração explícita e sequencial a partir de todas as versões anteriores; não inferir nem descartar campos desconhecidos (concluído em 06/11/2026).
+- [x] Schema v2 representa `marketplaces` como mapa por canal, com configuração `enabled`; migra listas v1 preservando canais habilitados, UUID e campos extras (concluído em 22/11/2026).
 
 ### 3.2 Workspace e catálogo
 
@@ -101,27 +102,27 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 ---
 
 ### Etapa B — Adaptação para Linux / TrueNAS & Tratamento de Pastas
-**Status:** Em andamento — Prioridade 1  
+**Status:** Concluída — validação funcional no TrueNAS em 22/11/2026
 **Objetivo:** Deixar o app pronto para rodar em TrueNAS e otimizar I/O em discos de rede.
 
 #### B.1 Configuração de Raiz por Volume/Ambiente
 - [x] Remover dependência do `windows_folder_picker.ps1` no fluxo principal (concluído em 13/10/2026)
 - [x] Definir raízes de anúncios por variáveis de ambiente (`PRODUCT_ROOTS` / `/data/products`) e volumes montados (concluído em 13/10/2026)
-- [-] Normalizar caminhos de catálogo e arquivos para representação POSIX-safe em runtime Linux/NAS, preservando a identidade do produto ao mover ou renomear diretórios (implementação e testes de caminho ajustados em 05/11/2026; falta validação no host Linux/TrueNAS)
+- [x] Normalizar caminhos de catálogo e arquivos para representação POSIX-safe em runtime Linux/NAS, preservando a identidade do produto ao mover ou renomear diretórios (implementação e testes de caminho ajustados em 05/11/2026; no TrueNAS, movimentação preservou o UUID e atualizou os caminhos de mídia em 22/11/2026)
 - [ ] Implementar navegador de diretórios restrito por *allowlist* na Web UI (opcional, mas recomendado)
 
 #### B.2 Filtros e Regras de Exclusão no Watcher
-- [x] Ignorar qualquer pasta cujo nome comece com `_` (incluindo `_arquivos/`, `_draft`, `_cache` e similares) (concluído em 13/10/2026)
+- [x] Ignorar qualquer pasta cujo nome comece com `_` (incluindo `_arquivos/`, `_draft`, `_cache` e similares) (implementado em 13/10/2026; confirmado no TrueNAS em 22/11/2026: pasta `_Paste de teste` presente no produto, sem criar produto extra na listagem)
 - [x] Aplicar padrões configuráveis de exclusão: `*.psd`, `~$*`, `*.tmp`, `Thumbs.db`, `.DS_Store` (concluído em 13/10/2026)
 - [x] Tornar as regras de ignore configuráveis (arquivo de configuração ou variáveis de ambiente) (concluído em 13/10/2026)
 
 #### B.3 Ajustes de Infraestrutura para NAS
 - [x] Intervalo de reconciliação configurável (SMB/NFS) em estrutura do watcher e env vars (concluído em 13/10/2026)
 - [x] Botão / endpoint de reindexação manual sob demanda (concluído em 13/10/2026)
-- [x] Configuração de permissões PUID/PGID no Docker para escrita atômica (concluído em 13/10/2026; stack iniciada no TrueNAS em 08/11/2026, com testes ampliados de permissões ainda pendentes)
+- [x] Configuração de permissões PUID/PGID no Docker para escrita atômica (concluído em 13/10/2026; leitura e gravação do `product.yaml` validadas no TrueNAS com `568:568` em 22/11/2026)
 - [x] Tratar casos de borda: renomeação de arquivos/pastas, debounce e eventos perdidos (concluído em 13/10/2026)
 - [x] Suporte a múltiplas raízes de produtos (concluído em 13/10/2026)
-- [x] Preparar e publicar a primeira stack para TrueNAS SCALE 25.10: autenticação do host no GHCR configurada; workflow executado com sucesso para publicar backend e watcher; Compose atualizado e `docker compose pull`/subida integrada de `db`, `backend` e `watcher` validados no TrueNAS (concluído em 08/11/2026). Permanecem pendentes os testes ampliados de catálogo, permissões, movimentação e reconciliação em dataset de teste.
+- [x] Preparar e publicar a primeira stack para TrueNAS SCALE 25.10: autenticação do host no GHCR configurada; workflow executado com sucesso para publicar backend e watcher; Compose atualizado e `docker compose pull`/subida integrada de `db`, `backend` e `watcher` validados no TrueNAS (concluído em 08/11/2026). Indexação/leitura, persistência de edições no manifesto, movimentação/renomeação, reconciliação periódica e reindexação manual validadas por logs e interface em 22/11/2026.
 - [x] Automatizar publicação de imagens para pushes em `main` com tag mutável `latest`, mantendo publicação versionada por tags SemVer `v*` (concluído em 08/11/2026).
 - [ ] Fixar as imagens usadas no TrueNAS em tags SemVer validadas ou digests; documentar como atualizar ambas em conjunto e como voltar para a versão anterior.
 - [ ] Definir e implementar armazenamento seguro da senha do PostgreSQL no TrueNAS, sem credenciais no Compose versionado, preservando a configuração coerente do serviço `db` e da URL do backend.
@@ -138,15 +139,15 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 
 **Critério de aceite da Etapa B:**  
 Aplicação sobe em TrueNAS apenas com volumes e variáveis de ambiente, sem qualquer dependência do seletor Windows, com regras de ignore ativas e reindexação manual funcional.  
-Status atual: a stack integrada `db`, `backend` e `watcher` foi iniciada no TrueNAS em 08/11/2026; catálogo, permissões efetivas, caminhos POSIX e eventos de movimentação/reconciliação ainda precisam de validação ampliada.
+Status: concluído em 22/11/2026, conforme validação reportada no ambiente real e confirmação visual: indexação/leitura e gravação de `product.yaml` com `PUID=568`/`PGID=568`; movimentação preservando o UUID e atualizando caminhos de mídia; reconciliação periódica; reindexação manual com HTTP 200; e pasta `_Paste de teste` ignorada sem aparecer como produto adicional na interface. Permanecem no roadmap, como hardening/operacionais posteriores à conclusão funcional, o pinning das imagens, gestão segura de credenciais, restrição de rede, teste de volume somente leitura e procedimento de backup/atualização/rollback. O navegador de diretórios é opcional; o bootstrap Zero-Config segue em validação própria.
 
 ---
 
 ### Etapa C — Robustez do Schema e Imagens
-**Status:** Em andamento — registry inicial implementado; falta definir e introduzir uma próxima mudança de schema
+**Status:** Em validação — schema v2 implementado em 22/11/2026; testes automatizados ainda precisam ser executados
 
 - [x] Criar registry de migrações do `product.yaml`: manifests legados sem versão migram para v1 com preservação de campos desconhecidos; versões futuras são sinalizadas sem alteração do arquivo (22 testes do backend aprovados em 06/11/2026; concluído em 06/11/2026)
-- [ ] Definir o schema v2 e a migração v1 → v2 junto da primeira mudança funcional de formato
+- [-] Introduzir configuração de habilitação por canal no `marketplaces` do `product.yaml`; migrar schema v1 (lista de nomes) para schema v2 (mapa de configurações), preservando campos desconhecidos. Implementação e testes adicionados em 22/11/2026; execução automatizada pendente porque o ambiente bloqueou a inicialização do Python.
 - [x] Processar imagens para entrega na Web UI com thumbnails e conversão WebP, preservando suporte à entrega direta (concluído em 06/11/2026)
 
 ---
@@ -237,13 +238,13 @@ Status atual: a stack integrada `db`, `backend` e `watcher` foi iniciada no True
 
 ## 7. Próximos Passos Imediatos (Ordem de Execução)
 
-1. [x] Validar publicação das imagens e inicialização integrada de `db`, `backend` e `watcher` no TrueNAS (concluído em 08/11/2026); ampliar depois os testes funcionais com dataset de teste.
-2. Executar testes com dataset de teste: validar permissões, caminhos POSIX, reindexação, movimentação/renomeação e reconciliação de pastas reservadas e arquivos auxiliares.
+1. [x] Validar publicação das imagens e inicialização integrada de `db`, `backend` e `watcher` no TrueNAS (concluído em 08/11/2026); indexação/leitura e persistência de edição no manifesto também validadas em 22/11/2026.
+2. [x] Executar testes funcionais no TrueNAS: indexação/leitura, gravação no manifesto, movimentação/renomeação com preservação de UUID, reconciliação periódica, reindexação manual e confirmação visual da pasta ignorada não aparecer no catálogo (validação reportada em 22/11/2026).
 3. Decidir a estratégia de credenciais e tags imutáveis para o TrueNAS antes de atualizar o Compose de produção.
 4. Validar o isolamento de rede e testar o watcher em modo somente leitura antes de aplicar essa restrição.
 5. Documentar e testar backup, atualização e rollback da stack, incluindo efeitos das migrações.
-6. Fechar os critérios da primeira versão utilizável e atualizar o status da Etapa B.
-7. Planejar uma mudança funcional concreta antes de introduzir schema v2.
+6. [x] Confirmar na interface a listagem final e o funcionamento das regras de ignore; formalizar o aceite funcional da Etapa B (concluído em 22/11/2026).
+7. [-] Executar os testes do backend para validar a migração v1 → v2, a edição de canais na API/UI e a preservação dos dados antes de marcar a Etapa C como concluída.
 
 ---
 

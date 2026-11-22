@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, List, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -60,10 +60,16 @@ class ProductEventRecord(Base):
     )
 
 
+class MarketplaceConfig(BaseModel):
+    model_config = {"extra": "allow"}
+
+    enabled: bool = False
+
+
 class ProductManifest(BaseModel):
     model_config = {"extra": "allow"}
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     id: UUID = Field(default_factory=uuid4)
     sku: str | None = None
     title: str = Field(min_length=1)
@@ -72,7 +78,7 @@ class ProductManifest(BaseModel):
     cost: Decimal | None = Field(default=None, ge=0)
     condition: Literal["new", "used", "refurbished"] | None = None
     status: Literal["pending", "published", "sold", "archived"] = "pending"
-    marketplaces: list[str] = Field(default_factory=list)
+    marketplaces: dict[str, MarketplaceConfig] = Field(default_factory=dict)
     description: str | None = None
 
 
@@ -86,8 +92,15 @@ class ProductManifestPatch(BaseModel):
     cost: Decimal | None = Field(default=None, ge=0)
     condition: Literal["new", "used", "refurbished"] | None = None
     status: Literal["pending", "published", "sold", "archived"] | None = None
-    marketplaces: list[str] | None = None
+    marketplaces: dict[str, MarketplaceConfig] | None = None
     description: str | None = None
+
+    @field_validator("marketplaces", mode="before")
+    @classmethod
+    def accept_legacy_marketplace_names(cls, value: Any) -> Any:
+        if isinstance(value, list) and all(isinstance(name, str) for name in value):
+            return {name: {"enabled": True} for name in value}
+        return value
 
 
 class ProductRecord(Base):
@@ -114,7 +127,7 @@ class ProductRecord(Base):
     cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     condition: Mapped[str | None] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
-    marketplaces: Mapped[list[str]] = mapped_column(JSON, default=list)
+    marketplaces: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     manifest: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     manifest_error: Mapped[str | None] = mapped_column(String(2048))
     ambiguous_structure: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -168,7 +181,7 @@ class ProductSummary(BaseModel):
     cost: Decimal | None = None
     condition: str | None = None
     status: str | None = None
-    marketplaces: List[str] = Field(default_factory=list)
+    marketplaces: dict[str, MarketplaceConfig] = Field(default_factory=dict)
     images: List[str] = Field(default_factory=list)
     primary_image: str | None = None
     category_suggestion: str | None = None

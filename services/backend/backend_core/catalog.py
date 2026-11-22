@@ -233,11 +233,11 @@ def _analyze_product(
         condition=manifest.get("condition") if manifest and not manifest_error else None,
         status=manifest.get("status") if manifest and not manifest_error else None,
         marketplaces=(
-            manifest.get("marketplaces", [])
+            manifest.get("marketplaces", {})
             if manifest
             and not manifest_error
-            and isinstance(manifest.get("marketplaces", []), list)
-            else []
+            and isinstance(manifest.get("marketplaces", {}), dict)
+            else {}
         ),
         images=[file.relative_path for file in images],
         primary_image=images[0].relative_path if images else None,
@@ -596,7 +596,12 @@ def _sync_product_for_event(
 
 
 def _serialize_product(record: ProductRecord) -> dict[str, object]:
-    files = [ProductFile.model_validate(file) for file in record.files]
+    files = [ProductFile.model_validate(file) for file in record.files    ]
+    marketplaces = record.marketplaces or {}
+    if isinstance(marketplaces, list) and all(
+        isinstance(name, str) for name in marketplaces
+    ):
+        marketplaces = {name: {"enabled": True} for name in marketplaces}
     images = sorted(
         (
             file
@@ -620,7 +625,7 @@ def _serialize_product(record: ProductRecord) -> dict[str, object]:
         cost=record.cost,
         condition=record.condition,
         status=record.status,
-        marketplaces=record.marketplaces or [],
+        marketplaces=marketplaces,
         images=[file.relative_path for file in images],
         primary_image=images[0].relative_path if images else None,
         category_suggestion=record.folder_group.rsplit("/", 1)[-1]

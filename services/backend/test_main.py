@@ -185,8 +185,62 @@ def test_scan_products_migrates_unversioned_manifest_and_preserves_unknown_field
 
     assert product.manifest_error is None
     assert product.id == "0197f381-7c63-7a1d-a8b1-4e08b8472401"
-    assert migrated_manifest["schema_version"] == 1
+    assert migrated_manifest["schema_version"] == 2
     assert migrated_manifest["custom_note"] == "keep this value"
+
+
+def test_scan_products_migrates_v1_marketplaces_to_enabled_configs(tmp_path):
+    product_dir = tmp_path / "Marketplace manifest"
+    product_dir.mkdir()
+    manifest_path = product_dir / "product.yaml"
+    manifest_path.write_text(
+        "schema_version: 1\n"
+        "id: 0197f381-7c63-7a1d-a8b1-4e08b8472402\n"
+        "title: Marketplace manifest\n"
+        "marketplaces:\n"
+        "  - mercadolivre\n"
+        "  - olx\n"
+        "custom_note: preserve this\n",
+        encoding="utf-8",
+    )
+
+    product = _scan_products(tmp_path)[0]
+    migrated_manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+
+    assert product.manifest_error is None
+    assert product.model_dump()["marketplaces"] == {
+        "mercadolivre": {"enabled": True},
+        "olx": {"enabled": True},
+    }
+    assert migrated_manifest["schema_version"] == 2
+    assert migrated_manifest["marketplaces"] == product.marketplaces
+    assert migrated_manifest["custom_note"] == "preserve this"
+
+
+def test_scan_products_preserves_existing_marketplace_configuration(tmp_path):
+    product_dir = tmp_path / "Configured marketplace"
+    product_dir.mkdir()
+    manifest_path = product_dir / "product.yaml"
+    manifest_path.write_text(
+        "schema_version: 1\n"
+        "id: 0197f381-7c63-7a1d-a8b1-4e08b8472403\n"
+        "title: Configured marketplace\n"
+        "marketplaces:\n"
+        "  mercadolivre:\n"
+        "    enabled: false\n"
+        "    seller_alias: store-1\n",
+        encoding="utf-8",
+    )
+
+    product = _scan_products(tmp_path)[0]
+    migrated_manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+
+    assert product.manifest_error is None
+    assert migrated_manifest["schema_version"] == 2
+    assert migrated_manifest["marketplaces"]["mercadolivre"] == {
+        "enabled": False,
+        "seller_alias": "store-1",
+    }
 
 
 def test_scan_products_does_not_rewrite_unsupported_future_schema(tmp_path):
@@ -614,6 +668,43 @@ def test_product_patch_preserves_unknown_yaml_and_prevents_write_loop(product_ap
 
     with Session(database) as session:
         assert session.scalar(select(ProductEventRecord)) is not None
+
+
+def test_product_patch_saves_marketplace_enabled_settings(product_api):
+    client, _, _, product_dir, product_id = product_api
+
+    response = client.patch(
+        f"/api/products/{product_id}",
+        json={
+            "marketplaces": {
+                "mercadolivre": {"enabled": True},
+                "olx": {"enabled": False},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["marketplaces"] == {
+        "mercadolivre": {"enabled": True},
+        "olx": {"enabled": False},
+    }
+    manifest = yaml.safe_load((product_dir / "product.yaml").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == 2
+    assert manifest["marketplaces"] == response.json()["marketplaces"]
+
+
+def test_product_patch_accepts_legacy_marketplace_name_list(product_api):
+    client, _, _, product_dir, product_id = product_api
+
+    response = client.patch(
+        f"/api/products/{product_id}",
+        json={"marketplaces": ["mercadolivre"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["marketplaces"] == {"mercadolivre": {"enabled": True}}
+    manifest = yaml.safe_load((product_dir / "product.yaml").read_text(encoding="utf-8"))
+    assert manifest["marketplaces"] == response.json()["marketplaces"]
 
 
 def test_product_patch_reports_invalid_fields(product_api):

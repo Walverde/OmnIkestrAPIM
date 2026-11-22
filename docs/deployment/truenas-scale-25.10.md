@@ -1,124 +1,244 @@
-# TrueNAS SCALE 25.10 (Goldeye) — primeira instalação
+# TrueNAS SCALE 25.10 (Goldeye) — implantação e operação
 
-Este procedimento instala a aplicação como **Custom App usando Compose YAML**.
-Use uma versão publicada das imagens e um dataset de teste na primeira
-instalação. Não aponte para os dados únicos de produção: a API ainda não tem
-autenticação e o catálogo pode atualizar manifests legados durante a
-reconciliação.
+Este procedimento usa **Custom App com Compose YAML**. Como a API ainda não
+tem autenticação, exponha-a somente a uma rede confiável e faça a primeira
+instalação com dados de teste. Não use dados únicos de produção antes de testar
+backup e restauração.
 
-## Pré-requisitos
+## Pré-requisitos e caminhos
 
 - TrueNAS SCALE 25.10.x com Apps habilitado.
-- Acesso à interface Web do TrueNAS e a um registry que possa baixar as imagens
-  `ghcr.io/walverde/omnikestrapim-backend` e
-  `ghcr.io/walverde/omnikestrapim-watcher`.
-- Um dataset para os produtos e outro diretório/dataset para os dados do
-  PostgreSQL.
-- UID e GID que terão acesso de leitura e escrita ao dataset de produtos.
+- Acesso ao GHCR para baixar as imagens privadas, caso o registry exija login.
+- Dataset de produtos e diretório/dataset persistente do PostgreSQL.
+- Endereço LAN reservado para o NAS; o YAML atual usa `192.168.100.58`.
+- UID/GID com acesso de leitura e gravação aos produtos; o exemplo validado
+  usa `568:568`.
 
-O workflow de GitHub Actions em `.github/workflows/publish-containers.yml`
-publica as imagens do backend e watcher no GHCR em pushes para `main` e em
-tags SemVer (`vMAJOR.MINOR.PATCH`). Cada push para `main` atualiza a tag
-mutável `latest`; tags SemVer publicam tags de versão, como `0.1.0`. O workflow
-foi executado com sucesso em 08/11/2026
-([execução no GitHub Actions](https://github.com/Walverde/OmnIkestrAPIM/actions/runs/42518491139)).
+O Compose versionado está configurado para:
 
-As imagens do GHCR podem exigir autenticação. No TrueNAS, faça login no
-registry com um Personal Access Token (PAT) que tenha permissão de leitura dos
-pacotes (`read:packages`). Informe o token apenas no prompt seguro do comando
-de login; não o salve neste Compose, no Git ou em documentação. O login bem
-sucedido permite que o Docker do host baixe as imagens privadas.
+- `/mnt/gbZaid/OmnIkestrAPIM/products` — produtos.
+- `/mnt/gbZaid/OmnIkestrAPIM/postgres` — dados persistentes do PostgreSQL.
+- `/mnt/gbZaid/OmnIkestrAPIM/secrets/postgres_password` — arquivo secreto no
+  host, fora do Git.
 
-## Preparar os datasets
+Crie os caminhos/datasets antes de instalar. `create_host_path: false` evita
+que caminhos incorretos virem diretórios vazios silenciosamente. Se o pool,
+IP ou nomes forem diferentes, ajuste os caminhos no
+`docker/docker-compose.truenas.yml` e use o IP reservado do seu TrueNAS.
 
-Crie os diretórios/datasets antes de instalar o app. O Compose versionado está
-preenchido para os caminhos informados para este TrueNAS:
+## Imagens fixadas
 
-- `/mnt/gbZaid/OmnIkestrAPIM/products` — dataset montado para os produtos.
-- `/mnt/gbZaid/OmnIkestrAPIM/postgres` — diretório persistente exclusivo do
-  PostgreSQL.
+O Compose fixa backend, watcher e PostgreSQL por digest, evitando que um
+`pull` troque silenciosamente a versão em execução:
 
-Se o pool ou os nomes dos datasets forem diferentes no seu servidor, atualize
-as ocorrências correspondentes em
-`docker/docker-compose.truenas.yml`. Faça a primeira instalação com uma cópia
-de teste dos produtos; não use dados únicos de produção antes de validar o
-backup e a restauração.
+- Backend e watcher: artefatos da execução bem-sucedida [Publish TrueNAS
+  container images #4](https://github.com/Walverde/OmnIkestrAPIM/actions/runs/45040597590),
+  no commit `df5ac54cc6de4c463b32adfd85ea1a1c7813a023`.
+- PostgreSQL: digest da imagem oficial `postgres:16-alpine` para `linux/amd64`.
+  TrueNAS SCALE requer arquitetura x86-64.
 
-O Compose usa `create_host_path: false` para que caminhos incorretos não criem
-diretórios vazios silenciosamente. Configure ACL/permissões do dataset de produtos para que o usuário do container
-consiga ler e gravar os manifests. O exemplo usa `568:568`, mas confirme os
-IDs/permissões no seu sistema; altere `user`, `PUID` e `PGID` nos serviços
-`backend` e `watcher` se necessário. O dataset PostgreSQL deve permitir que o
-processo `postgres` da imagem oficial inicialize e grave os dados; não aplique
-automaticamente a ele o mesmo UID/GID escolhido para os produtos.
+Após qualquer build novo, atualize **os dois digests do GHCR em conjunto**
+somente depois de a execução do workflow terminar com sucesso. Atualize
+também o digest do PostgreSQL apenas quando deliberadamente selecionar outra
+versão. Registre os três valores anteriores em local seguro para rollback.
+Não substitua os digests por `latest`.
 
-## Publicar e atualizar as imagens
+## Senha do PostgreSQL
 
-Para a atualização contínua, cada push para `main` executa o workflow e publica
-as imagens com a tag `latest`. Para uma versão fixa, crie e envie uma tag
-SemVer, por exemplo `v0.1.0`; isso publica:
+O Compose não contém a senha. Crie uma senha hexadecimal aleatória de 32 bytes
+(64 caracteres), guarde-a em um gerenciador de senhas e escreva o mesmo valor
+no arquivo secreto sem incluí-lo em Git, ticket ou histórico de comandos:
 
-- `ghcr.io/walverde/omnikestrapim-backend:0.1.0`
-- `ghcr.io/walverde/omnikestrapim-watcher:0.1.0`
+```bash
+sudo install -d -o root -g 568 -m 0750 /mnt/gbZaid/OmnIkestrAPIM/secrets
+sudo install -o root -g 568 -m 0440 /dev/null /mnt/gbZaid/OmnIkestrAPIM/secrets/postgres_password
+sudo nano /mnt/gbZaid/OmnIkestrAPIM/secrets/postgres_password
+```
 
-Confirme que a execução do workflow terminou com sucesso antes de atualizar o
-TrueNAS. O Compose versionado neste repositório usa `latest` para consumir
-builds da branch principal. Essa tag é mutável; para implantação reproduzível,
-prefira fixar as duas imagens numa tag SemVer já validada.
+Use um gerador seguro para criar a senha e cole-a no editor; por exemplo,
+`openssl rand -hex 32` exibe um valor aleatório que deve ser salvo diretamente
+no gerenciador de senhas. Confirme que o arquivo contém apenas a senha
+hexadecimal e uma quebra de linha final opcional. O grupo `568` permite que o
+backend, executado como `568:568`, leia o secret. Verifique a ACL do arquivo no
+TrueNAS caso o bind mount não preserve os modos POSIX.
 
-## Configurar e instalar
+`POSTGRES_PASSWORD_FILE` é usado pelo PostgreSQL **somente ao inicializar um
+diretório de dados vazio**. Como a instalação existente já tem um banco
+inicializado, sincronize a senha da role com o arquivo antes de recriar o
+backend:
 
-1. Abra **Apps** no TrueNAS e escolha a opção de instalar um **Custom App** via
-   YAML/Compose.
-2. Cole o conteúdo de `docker/docker-compose.truenas.yml` no editor do app.
-3. Confirme que `/mnt/gbZaid/OmnIkestrAPIM/products` e
-   `/mnt/gbZaid/OmnIkestrAPIM/postgres` existem no TrueNAS e correspondem aos
-   datasets preparados. Se necessário, ajuste os caminhos no YAML antes de
-   colá-lo.
-4. Gere uma senha aleatória hexadecimal com 32 bytes (por exemplo,
-   `openssl rand -hex 32`) em uma máquina confiável. Substitua
-   `REPLACE_WITH_RANDOM_HEX_PASSWORD` pelas mesmas 64 letras/números nas duas
-   ocorrências do Compose. Não use a senha de exemplo nem a reutilize em outros
-   serviços.
-5. Se as imagens forem privadas, autentique o Docker do TrueNAS no GHCR com um
-   PAT de leitura de pacotes. Não coloque o valor do token no Compose.
-6. Revise as permissões do dataset e o UID/GID configurado. No diretório do
-   Compose, baixe as imagens e suba/atualize a stack:
-   `docker compose -f docker-compose.yml pull` e depois
-   `docker compose -f docker-compose.yml up -d`.
-   Se estiver usando o editor de Custom App do TrueNAS, aplique as mesmas
-   alterações e use a ação de atualizar/reimplantar do app.
-7. Acompanhe os eventos/logs até `db`, `backend` e `watcher` estarem em
-   execução. Abra `http://IP_DO_TRUENAS:8000/settings` na rede local e valide o
-   catálogo de teste, depois faça uma reindexação e teste mover/renomear uma
-   pasta de produto.
+1. Faça backup do banco e dos produtos conforme o procedimento abaixo e
+   confirme que a senha atual está preservada no gerenciador de senhas.
+2. No serviço `db` que já está em execução, abra `psql`:
 
-O primeiro início do backend aguarda o PostgreSQL saudável, aplica as
-migrações Alembic automaticamente e reconcilia o catálogo. Não execute
-migrações SQL manualmente.
+   ```bash
+   sudo docker compose -f docker-compose.truenas.yml exec db psql -U omnikestr -d omnikestr
+   ```
 
-## Segurança e operação
+3. No prompt interativo do `psql`, execute `\password omnikestr`. Digite a
+   senha armazenada no arquivo secreto nas duas solicitações, depois `\q`.
+   O prompt oculta a senha e evita colocá-la no histórico de shell.
+4. Recrie o Compose e verifique a saúde do banco e a conexão do backend. Não
+   apague o diretório persistente do PostgreSQL.
 
-- A porta `8000` é publicada para acesso na rede. Como a API ainda não tem
-  autenticação, **não encaminhe essa porta pela internet**; limite o acesso à
-  LAN/VPN com as regras de rede apropriadas.
-- Backend e watcher precisam de acesso de escrita ao dataset de produtos:
-  o backend grava manifests atomicamente e migra manifests legados; o watcher
-  processa eventos/reconciliações.
-- O PostgreSQL usa bind mount persistente. Inclua esse dataset nos backups e
-  teste a restauração antes de usar dados de produção.
-- Para atualizar, publique uma nova tag de imagens, altere as duas tags no
-  Compose (ou atualize `latest` com `pull` e recriação dos containers) e
-  aplique a atualização do Custom App. Faça backup do PostgreSQL e dos
-  manifests antes de atualizar.
-- Para voltar atrás, restaure conjuntamente a versão anterior do app e os
-  backups correspondentes. Não apague o dataset de PostgreSQL ao remover ou
-  recriar o Custom App.
-- O backend com suporte ao schema v2 migra automaticamente manifests v1 ao
-  indexá-los. A versão anterior do backend não reconhece schema v2; portanto,
-  um rollback após essa migração exige restaurar também os `product.yaml` do
-  backup anterior à atualização, além de voltar as imagens. Não faça rollback
-  apenas das imagens depois que a nova versão tiver migrado os manifests.
+O backend lê o arquivo secreto no início e constrói `DATABASE_URL` dentro do
+container. Não copie a senha para YAML, `.env`, argumentos de linha de
+comando ou logs. Mantenha uma cópia protegida da senha no gerenciador de
+senhas; um dump lógico do PostgreSQL não inclui a senha da role.
 
-Esta primeira versão não monta automaticamente uma pasta escolhida pelo
-usuário na Web UI. O caminho do dataset é configurado no Compose do Custom App.
+## Instalação / aplicação do Compose
+
+1. Confirme os caminhos, endereço LAN, UID/GID e ACLs dos datasets.
+2. Crie o arquivo de segredo acima. Se esta for uma instalação existente,
+   primeiro faça a rotação interativa da senha da role.
+3. Se necessário, autentique o Docker do TrueNAS no GHCR com um PAT de leitura
+   de pacotes. Informe o token somente no prompt seguro de `docker login`.
+4. No diretório `docker` do checkout, valide e aplique o YAML:
+
+   ```bash
+   cd /mnt/gbZaid/OmnIkestrAPIM/docker
+   sudo docker compose -f docker-compose.truenas.yml config --quiet
+   sudo docker compose -f docker-compose.truenas.yml pull
+   sudo docker compose -f docker-compose.truenas.yml up -d --force-recreate
+   ```
+
+   No Custom App, aplique as mesmas alterações usando a ação de atualizar/
+   reimplantar do TrueNAS.
+5. Confirme que `db`, `backend` e `watcher` estão saudáveis, abra
+   `http://192.168.100.58:8000/` a partir da LAN permitida e teste a
+   reindexação com um dataset de teste.
+
+O backend aguarda o PostgreSQL saudável e aplica migrações Alembic ao iniciar.
+Não execute SQL de migração manualmente.
+
+## Backup, atualização e rollback
+
+Faça um backup imediatamente antes de cada atualização. Durante a cópia,
+interrompa temporariamente as alterações pela interface e pare backend e
+watcher; mantenha o PostgreSQL em execução para o `pg_dump`.
+Antes de atualizar, exporte/salve também o YAML atualmente aplicado pelo
+Custom App e anote os digests em execução. O YAML do checkout é a configuração
+candidata da nova versão e não substitui uma cópia da configuração realmente
+implantada.
+
+```bash
+cd /mnt/gbZaid/OmnIkestrAPIM/docker
+BACKUP_DIR="/mnt/gbZaid/OmnIkestrAPIM/backups/$(date +%F-%H%M%S)"
+sudo install -d -o root -g root -m 0700 "$BACKUP_DIR"
+sudo docker compose -f docker-compose.truenas.yml stop backend watcher
+set -o pipefail
+sudo docker compose -f docker-compose.truenas.yml exec -T db \
+  pg_dump -U omnikestr -d omnikestr -Fc | sudo tee "$BACKUP_DIR/catalog.dump" >/dev/null
+sudo tar -C /mnt/gbZaid/OmnIkestrAPIM -czf "$BACKUP_DIR/products.tar.gz" products
+sudo docker compose -f docker-compose.truenas.yml start backend watcher
+```
+
+Guarde os backups fora do Git e, idealmente, em armazenamento criptografado
+separado do NAS. Faça também snapshot TrueNAS dos datasets de produtos e
+PostgreSQL, se disponíveis; inclua no snapshot/backup a versão do YAML e
+preserve a senha correspondente no gerenciador de senhas. Confira os códigos
+de saída e tamanhos dos artefatos. Teste restauração em datasets de teste
+antes de depender deste procedimento em produção.
+
+Atualização:
+
+1. Registre os digests atualmente instalados e faça o backup acima.
+2. Atualize no Compose os digests do backend e watcher para o mesmo build
+   validado no workflow. Não atualize só um deles.
+3. Valide o YAML, faça `pull` e recrie os serviços com os comandos da seção
+   anterior.
+4. Verifique saúde, logs sem exceções, leitura de produtos, edição de
+   `product.yaml`, reindexação e eventos de movimentação.
+5. Mantenha o backup e os digests anteriores até aceitar a atualização.
+
+Rollback:
+
+1. Pare backend e watcher e restaure **em conjunto** o Compose/digests,
+   PostgreSQL e dataset de produtos do mesmo ponto anterior à atualização.
+   Reaplique a cópia do YAML que estava realmente implantado antes da
+   atualização, não o YAML candidato da nova versão.
+   Para produtos, prefira restaurar o snapshot pareado do dataset; se usar o
+   tarball, extraia primeiro para staging, valide o conteúdo e só então
+   substitua o dataset pelo procedimento de restauração do TrueNAS. Não
+   extraia sobre a árvore atual esperando remover arquivos novos.
+2. Restaure o dump lógico no banco de teste/recuperação antes de produção;
+   a forma de recriar o banco deve respeitar as roles e a versão do
+   PostgreSQL. `pg_restore --clean` remove objetos existentes e só deve ser
+   usado após conferir o alvo e possuir backup.
+3. Reaplique os digests antigos, faça `pull` e suba a stack. Confirme a
+   conectividade e a integridade antes de reabrir o acesso dos usuários.
+
+Migrações podem tornar imagens antigas incompatíveis com o banco ou com
+`product.yaml`. Não faça rollback somente das imagens depois de uma migração:
+restaure também o banco e os manifests do backup anterior. Não use
+`docker compose down -v` para atualização ou rollback; isso pode remover
+volumes persistentes.
+
+## Rede e volume somente leitura do watcher
+
+A porta publicada no Compose está vinculada ao IP LAN
+`${TRUENAS_LAN_IP:-192.168.100.58}`, não a todas as interfaces. O IP precisa
+estar configurado e reservado no TrueNAS; se mudar, atualize a variável antes
+de aplicar. Isso **não substitui firewall**:
+
+- Permita TCP/8000 somente das sub-redes LAN/VPN confiáveis no firewall/ACL
+  disponível no host e na rede.
+- Não crie encaminhamento de porta pública no roteador e não exponha a API
+  diretamente à internet.
+- Se usar VPN, permita somente os clientes/sub-redes VPN necessários e
+  verifique a rota até o IP LAN.
+- Teste de uma rede não autorizada que a porta não esteja acessível. O
+  Compose sozinho não configura nem comprova essas regras.
+
+O volume do watcher permanece **gravável** até que a operação somente leitura
+seja validada em um dataset descartável. Para avaliar, monte o dataset de
+teste com `read_only: true` apenas no serviço `watcher`, confirme que a raiz
+existe antes de iniciar e valide inicialização, reconciliação periódica,
+eventos de criação/movimentação e logs sem `PermissionError`. Se algum teste
+falhar, mantenha o volume gravável. Não aplique a restrição ao backend, que
+precisa gravar manifests.
+
+## Wizard Zero-Config e navegador de diretórios
+
+O wizard inicial, a seleção persistente da raiz e o navegador restrito por
+allowlist já estão implementados no backend/Web UI. A raiz selecionável deve
+ser um volume montado e autorizado em `PRODUCT_ROOTS`/`PRODUCTS_ROOT`; o
+wizard não monta datasets no host.
+
+Antes de aceitar uma instalação limpa:
+
+1. Use uma stack e dataset descartáveis e confirme a instalação sem dados
+   previamente catalogados.
+2. Selecione uma raiz montada permitida, reinicie o backend e confirme que a
+   seleção persiste.
+3. Tente navegar acima da raiz, selecionar um caminho externo e criar pasta
+   fora da allowlist; essas operações devem ser recusadas.
+4. Repita os testes com os volumes reais somente depois de validar o
+   comportamento no dataset de teste.
+
+Os testes automatizados correspondentes estão em
+`services/backend/test_main.py`; a instalação limpa e os limites em volumes
+montados ainda precisam de validação no TrueNAS.
+
+## Registro de execução no TrueNAS
+
+Os seguintes resultados foram reportados no ambiente real em 22/11/2026:
+
+- Dataset de produtos pertencente a `apps` (`UID=568`, `GID=568`); configurar
+  `PUID=568` e `PGID=568` resolveu os erros de permissão e importação.
+- Stack recriada com PostgreSQL saudável e interface/API respondendo na porta
+  `8000`; backend iniciado sem `--reload`.
+- Leitura e gravação de `product.yaml`, incluindo título, estado, preço,
+  custo, condição e descrição, foram validadas pela interface.
+- Movimentação/renomeação preservou o UUID
+  `51143590-6650-4667-b2b5-362a36aa5aef` e atualizou os caminhos de mídia.
+- Reconciliação periódica, reindexação manual (`POST /api/products/scan`,
+  HTTP 200) e remoção de `Teste Reconciliacao` foram reportadas sem erros
+  HTTP 500 ou exceções.
+- A confirmação visual mostrou somente o produto esperado; `_Paste de teste`
+  foi ignorada como produto adicional.
+
+Esses registros validam o fluxo funcional no estado implantado naquele
+momento. Os digests, segredo, regras de rede, backup/rollback e montagem
+somente leitura documentados acima ainda precisam ser aplicados ou testados
+no TrueNAS; este workspace não tem acesso ao host.

@@ -2,11 +2,13 @@ name: omnikestr
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres@sha256:9d9e487c1bd6413c52ccb3c02f46c8e37fa1e1d1a32a84519eb4e68d0ad1da30
     environment:
       POSTGRES_DB: omnikestr
       POSTGRES_USER: omnikestr
-      POSTGRES_PASSWORD: REPLACE_WITH_RANDOM_HEX_PASSWORD
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
     volumes:
       - type: bind
         source: /mnt/gbZaid/OmnIkestrAPIM/postgres
@@ -24,18 +26,31 @@ services:
       - omnikestr
 
   backend:
-    image: ghcr.io/walverde/omnikestrapim-backend:latest
+    image: ghcr.io/walverde/omnikestrapim-backend@sha256:948bbd060516b5e3951c38b1bd14089a66aa61c504f92f64c4a32e3f79c2107b
     user: "568:568"
-    command: ["uvicorn", "main:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000"]
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        DB_PASSWORD="$$(cat /run/secrets/postgres_password)"
+        if [ -z "$$DB_PASSWORD" ]; then
+          echo "PostgreSQL password secret is empty." >&2
+          exit 1
+        fi
+        export DATABASE_URL="postgresql+psycopg2://$${POSTGRES_USER}:$${DB_PASSWORD}@db:5432/$${POSTGRES_DB}"
+        exec uvicorn main:app --app-dir /app --host 0.0.0.0 --port 8000
     ports:
-      - "8000:8000"
+      - "${TRUENAS_LAN_IP:-192.168.100.58}:8000:8000"
     environment:
       PYTHONUNBUFFERED: "1"
-      DATABASE_URL: postgresql+psycopg2://omnikestr:REPLACE_WITH_RANDOM_HEX_PASSWORD@db:5432/omnikestr
+      POSTGRES_DB: omnikestr
+      POSTGRES_USER: omnikestr
       PRODUCTS_ROOT: /data/products
       PRODUCT_ROOTS: /data/products
       PUID: "568"
       PGID: "568"
+    secrets:
+      - postgres_password
     volumes:
       - type: bind
         source: /mnt/gbZaid/OmnIkestrAPIM/products
@@ -56,7 +71,7 @@ services:
       - omnikestr
 
   watcher:
-    image: ghcr.io/walverde/omnikestrapim-watcher:latest
+    image: ghcr.io/walverde/omnikestrapim-watcher@sha256:01b608b778562b5ffb964522585410385e5a4b21914df8dfb7afe64be15e67c8
     user: "568:568"
     environment:
       PYTHONUNBUFFERED: "1"
@@ -81,3 +96,7 @@ services:
 networks:
   omnikestr:
     driver: bridge
+
+secrets:
+  postgres_password:
+    file: /mnt/gbZaid/OmnIkestrAPIM/secrets/postgres_password

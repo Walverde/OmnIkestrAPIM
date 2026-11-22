@@ -176,8 +176,12 @@
         const marketplaces = product.marketplaces && !Array.isArray(product.marketplaces)
           ? product.marketplaces
           : {};
-        const channelKeys = new Set(['mercadolivre', 'olx', ...Object.keys(marketplaces)]);
-        const channelLabels = { mercadolivre: 'Mercado Livre', olx: 'OLX' };
+        const channelKeys = new Set(['mercadolivre', 'olx', 'facebook_marketplace', ...Object.keys(marketplaces)]);
+        const channelLabels = {
+          mercadolivre: 'Mercado Livre',
+          olx: 'OLX',
+          facebook_marketplace: 'Facebook Marketplace'
+        };
         for (const key of [...channelKeys].sort()) {
           const label = element('label', 'marketplace-option');
           const checkbox = element('input');

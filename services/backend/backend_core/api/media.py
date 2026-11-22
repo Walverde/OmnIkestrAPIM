@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import runtime
-from ..catalog import IMAGE_EXTENSIONS
+from ..catalog import IMAGE_EXTENSIONS, _is_ignored_product_path
 from ..media import create_webp_thumbnail, thumbnail_cache_path
 from ..models import DEFAULT_WORKSPACE_ID, ProductRecord
 from .dependencies import get_db
@@ -43,13 +43,18 @@ def get_product_media(
     )
     if product_base is None:
         raise HTTPException(status_code=404, detail="Arquivo não encontrado para este produto.")
-    source_path = (product_base / relative_path).resolve()
+    relative_media_path = Path(relative_path)
+    if _is_ignored_product_path(relative_media_path):
+        raise HTTPException(status_code=404, detail="Imagem não encontrada.")
+    source_path = (product_base / relative_media_path).resolve()
     try:
-        source_path.relative_to(product_root)
+        product_relative_path = source_path.relative_to(product_root)
     except ValueError as error:
         raise HTTPException(
             status_code=404, detail="Arquivo não encontrado para este produto."
         ) from error
+    if _is_ignored_product_path(product_relative_path):
+        raise HTTPException(status_code=404, detail="Imagem não encontrada.")
     if (
         not source_path.is_file()
         or source_path.suffix.lower().lstrip(".") not in IMAGE_EXTENSIONS

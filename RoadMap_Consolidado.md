@@ -41,9 +41,10 @@ Este roadmap controla o escopo, prioridades, decisões e progresso. A implementa
 
 ### Lacunas e verificações pendentes
 
-- A stack inicial `db`, `backend` e `watcher` foi iniciada no TrueNAS em 08/11/2026; ainda falta ampliar a validação com catálogo, permissões e operações reais de movimentação/reconciliação.
-- Confirmar no host Linux o comportamento de caminhos POSIX e eventos de watcher/reconciliação.
-- O navegador de diretórios com *allowlist* permanece opcional e não implementado.
+- Os testes funcionais de catálogo, permissões, movimentação e reconciliação foram reportados como concluídos no TrueNAS em 22/11/2026; a nova configuração de hardening do Compose ainda não foi implantada no host.
+- Aplicar e validar no TrueNAS a rotação do segredo, as regras de firewall/LAN/VPN e o procedimento de backup/restauração/rollback.
+- Validar a montagem do volume do watcher como somente leitura em um dataset descartável antes de aplicar a restrição.
+- Validar instalação limpa do Zero-Config/wizard e limites da allowlist em volumes montados no TrueNAS.
 - Migrações de manifests para versões futuras ainda dependem da definição e aprovação de um schema v2.
 
 ---
@@ -109,7 +110,7 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 - [x] Remover dependência do `windows_folder_picker.ps1` no fluxo principal (concluído em 13/10/2026)
 - [x] Definir raízes de anúncios por variáveis de ambiente (`PRODUCT_ROOTS` / `/data/products`) e volumes montados (concluído em 13/10/2026)
 - [x] Normalizar caminhos de catálogo e arquivos para representação POSIX-safe em runtime Linux/NAS, preservando a identidade do produto ao mover ou renomear diretórios (implementação e testes de caminho ajustados em 05/11/2026; no TrueNAS, movimentação preservou o UUID e atualizou os caminhos de mídia em 22/11/2026)
-- [ ] Implementar navegador de diretórios restrito por *allowlist* na Web UI (opcional, mas recomendado)
+- [x] Implementar navegador de diretórios restrito por *allowlist* na Web UI (endpoint e wizard limitados aos volumes permitidos; teste de traversal em `services/backend/test_main.py`; implementação já existente em 22/11/2026)
 
 #### B.2 Filtros e Regras de Exclusão no Watcher
 - [x] Ignorar qualquer pasta cujo nome comece com `_` (incluindo `_arquivos/`, `_draft`, `_cache` e similares) (implementado em 13/10/2026; confirmado no TrueNAS em 22/11/2026: pasta `_Paste de teste` presente no produto, sem criar produto extra na listagem)
@@ -124,12 +125,12 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 - [x] Suporte a múltiplas raízes de produtos (concluído em 13/10/2026)
 - [x] Preparar e publicar a primeira stack para TrueNAS SCALE 25.10: autenticação do host no GHCR configurada; workflow executado com sucesso para publicar backend e watcher; Compose atualizado e `docker compose pull`/subida integrada de `db`, `backend` e `watcher` validados no TrueNAS (concluído em 08/11/2026). Indexação/leitura, persistência de edições no manifesto, movimentação/renomeação, reconciliação periódica e reindexação manual validadas por logs e interface em 22/11/2026.
 - [x] Automatizar publicação de imagens para pushes em `main` com tag mutável `latest`, mantendo publicação versionada por tags SemVer `v*` (concluído em 08/11/2026).
-- [ ] Fixar as imagens usadas no TrueNAS em tags SemVer validadas ou digests; documentar como atualizar ambas em conjunto e como voltar para a versão anterior.
-- [ ] Definir e implementar armazenamento seguro da senha do PostgreSQL no TrueNAS, sem credenciais no Compose versionado, preservando a configuração coerente do serviço `db` e da URL do backend.
-- [ ] Restringir e documentar o acesso de rede à API no TrueNAS enquanto não houver autenticação nativa, limitando o acesso à LAN/VPN e evitando exposição pública da porta.
-- [ ] Validar o watcher com o volume de produtos montado como somente leitura; aplicar a restrição apenas se os testes funcionais confirmarem que o serviço não precisa gravar nesses dados.
-- [ ] Documentar e validar procedimento seguro de atualização: backup, pull das imagens fixadas, recriação dos serviços, verificação de saúde e rollback, considerando compatibilidade das migrações.
-- [-] Criar bootstrap local Zero-Config e wizard inicial: script, defaults e seleção persistente de pasta em implementação desde 07/11/2026; falta validar instalação do zero e os limites de seleção em volumes montados.
+- [-] Fixar as imagens usadas no TrueNAS em digests imutáveis validados; documentar como atualizar backend, watcher e banco conjuntamente e como voltar às referências anteriores (Compose/guia atualizados e configuração validada em 22/11/2026; aplicar e confirmar no host ainda pendente).
+- [-] Definir armazenamento da senha do PostgreSQL por arquivo secreto fora do Git e configurar o Compose/guia sem credencial versionada (implementado no repositório em 22/11/2026; falta criar o arquivo, rotacionar a senha do banco existente e validar no TrueNAS).
+- [-] Restringir e documentar o acesso de rede à API no TrueNAS enquanto não houver autenticação nativa (Compose limitado ao IP LAN `192.168.100.58` e orientação para ACL/firewall em 22/11/2026; falta aplicar/verificar regras no roteador/firewall do host e confirmar VPN).
+- [ ] Validar o watcher com o volume de produtos montado como somente leitura; a restrição ainda não foi aplicada porque o Docker daemon de validação não estava disponível em 22/11/2026.
+- [-] Documentar e validar procedimento seguro de atualização: digests e instruções de atualização, backup e rollback registrados no guia em 22/11/2026; ainda falta executar backup/restauração, atualização e rollback no TrueNAS, inclusive verificar compatibilidade das migrações.
+- [-] Bootstrap local Zero-Config e wizard inicial: defaults, seleção persistente, navegação allowlist e testes de limites já estão implementados; falta validar instalação limpa e seleção em volumes montados no TrueNAS.
 
 #### B.4 Modularização do Backend
 - [x] Separar modelos (`backend_core/models.py`), acesso ao banco (`backend_core/database.py`), lógica de catálogo (`backend_core/catalog.py`) e processamento de mídia (`backend_core/media.py`), mantendo `main.py` como ponto de entrada compatível (concluído em 05/11/2026)
@@ -139,7 +140,7 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 
 **Critério de aceite da Etapa B:**  
 Aplicação sobe em TrueNAS apenas com volumes e variáveis de ambiente, sem qualquer dependência do seletor Windows, com regras de ignore ativas e reindexação manual funcional.  
-Status: concluído em 22/11/2026, conforme validação reportada no ambiente real e confirmação visual: indexação/leitura e gravação de `product.yaml` com `PUID=568`/`PGID=568`; movimentação preservando o UUID e atualizando caminhos de mídia; reconciliação periódica; reindexação manual com HTTP 200; e pasta `_Paste de teste` ignorada sem aparecer como produto adicional na interface. Permanecem no roadmap, como hardening/operacionais posteriores à conclusão funcional, o pinning das imagens, gestão segura de credenciais, restrição de rede, teste de volume somente leitura e procedimento de backup/atualização/rollback. O navegador de diretórios é opcional; o bootstrap Zero-Config segue em validação própria.
+Status: concluído em 22/11/2026, conforme validação reportada no ambiente real e confirmação visual: indexação/leitura e gravação de `product.yaml` com `PUID=568`/`PGID=568`; movimentação preservando o UUID e atualizando caminhos de mídia; reconciliação periódica; reindexação manual com HTTP 200; e pasta `_Paste de teste` ignorada sem aparecer como produto adicional na interface. Permanecem pendentes no host a aplicação dos digests, rotação e validação do segredo, restrição efetiva de rede, teste do watcher somente leitura e execução do backup/restauração/rollback. O navegador de diretórios e o wizard estão implementados; a validação de instalação limpa permanece pendente.
 
 ---
 
@@ -184,6 +185,7 @@ Status: concluído em 22/11/2026, conforme validação reportada no ambiente rea
 
 - [ ] Módulo de Market Intelligence com separação rigorosa entre dados observados e estimativas de IA
 - [ ] Conector OLX sobre a abstração comum
+- [ ] Conector Facebook Marketplace sobre a abstração comum
 - [ ] Preparação para novos canais futuros
 
 ---
@@ -215,11 +217,8 @@ Status: concluído em 22/11/2026, conforme validação reportada no ambiente rea
 
 | # | Decisão | Opções / critério | Estado |
 |---|---------|------------------|--------|
-| 1 | Navegador de diretórios na Web UI | Implementar um navegador restrito por *allowlist* dos pontos de montagem ou manter configuração exclusivamente por volumes/variáveis de ambiente. Não é requisito para o deploy inicial. | Aberta; avaliar após validação Linux/TrueNAS |
 | 2 | Escopo da primeira versão utilizável | Definir critérios objetivos de entrega e quais integrações entram no primeiro release. | Aberta; fechar após Etapa B |
 | 3 | Próxima mudança funcional do manifest | Identificar requisito que demande schema v2; não criar uma versão sem mudança real que a justifique. | Aberta; dependente da evolução funcional |
-| 4 | Estratégia de credenciais no TrueNAS | Escolher entre secrets/credenciais gerenciadas pela interface do TrueNAS ou arquivo de ambiente protegido no host; validar suporte no método de instalação usado e evitar segredo em YAML versionado. | Aberta; avaliar antes de alterar o Compose |
-| 5 | Política de tags para deploy no TrueNAS | Decidir se o deploy usará tags SemVer fixas ou digests; manter `latest` apenas como conveniência de publicação/atualização, não como referência reprodutível de produção. | Aberta; recomendação inicial: SemVer validada |
 
 ---
 
@@ -240,11 +239,12 @@ Status: concluído em 22/11/2026, conforme validação reportada no ambiente rea
 
 1. [x] Validar publicação das imagens e inicialização integrada de `db`, `backend` e `watcher` no TrueNAS (concluído em 08/11/2026); indexação/leitura e persistência de edição no manifesto também validadas em 22/11/2026.
 2. [x] Executar testes funcionais no TrueNAS: indexação/leitura, gravação no manifesto, movimentação/renomeação com preservação de UUID, reconciliação periódica, reindexação manual e confirmação visual da pasta ignorada não aparecer no catálogo (validação reportada em 22/11/2026).
-3. Decidir a estratégia de credenciais e tags imutáveis para o TrueNAS antes de atualizar o Compose de produção.
-4. Validar o isolamento de rede e testar o watcher em modo somente leitura antes de aplicar essa restrição.
-5. Documentar e testar backup, atualização e rollback da stack, incluindo efeitos das migrações.
-6. [x] Confirmar na interface a listagem final e o funcionamento das regras de ignore; formalizar o aceite funcional da Etapa B (concluído em 22/11/2026).
-7. [-] Executar os testes do backend para validar a migração v1 → v2, a edição de canais na API/UI e a preservação dos dados antes de marcar a Etapa C como concluída.
+3. [-] Aplicar no TrueNAS a configuração versionada de segredos e digests; rotacionar a senha persistente e confirmar saúde dos serviços.
+4. Restringir a porta TCP/8000 no firewall/roteador a LAN/VPN e validar a partir de redes permitidas e não permitidas.
+5. Testar o watcher com volume somente leitura em dataset descartável; só então considerar aplicar a restrição.
+6. [-] Procedimento de backup/restauração, atualização e rollback documentado; executar e validar no TrueNAS, incluindo efeitos das migrações.
+7. [x] Confirmar na interface a listagem final e o funcionamento das regras de ignore; formalizar o aceite funcional da Etapa B (concluído em 22/11/2026).
+8. [-] Executar os testes do backend para validar a migração v1 → v2, a edição de canais na API/UI e a preservação dos dados antes de marcar a Etapa C como concluída.
 
 ---
 

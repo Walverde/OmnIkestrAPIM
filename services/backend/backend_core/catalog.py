@@ -57,6 +57,10 @@ def _storage_path(path: str | Path) -> str:
     return Path(str(path)).expanduser().as_posix()
 
 
+def _is_ignored_product_path(path: Path) -> bool:
+    return any(part.startswith("_") for part in path.parts)
+
+
 def _ensure_workspace(db: Session, workspace_id: str = DEFAULT_WORKSPACE_ID) -> None:
     if not inspect(db.bind).has_table("workspaces"):
         Base.metadata.create_all(bind=db.bind)
@@ -270,11 +274,14 @@ def _scan_product(
     for file in sorted(product_path.rglob("*"), key=lambda item: str(item).lower()):
         if file.is_dir():
             continue
+        relative_path = file.relative_to(root)
+        if _is_ignored_product_path(relative_path):
+            continue
         files.append(
             ProductFile(
                 name=file.name,
                 full_path=_display_path(file),
-                relative_path=_display_path(file.relative_to(root)),
+                relative_path=_display_path(relative_path),
                 extension=file.suffix.lower().lstrip(".") or None,
             )
         )
@@ -316,7 +323,7 @@ def _scan_products(
 
     def walk(group_path: Path, group_parts: list[str]) -> None:
         for folder in sorted(group_path.iterdir(), key=lambda path: path.name.casefold()):
-            if not folder.is_dir():
+            if not folder.is_dir() or folder.name.startswith("_"):
                 continue
 
             direct_files = [entry for entry in folder.iterdir() if entry.is_file()]
@@ -596,7 +603,11 @@ def _sync_product_for_event(
 
 
 def _serialize_product(record: ProductRecord) -> dict[str, object]:
-    files = [ProductFile.model_validate(file) for file in record.files    ]
+    files = [
+        file
+        for file in (ProductFile.model_validate(item) for item in record.files)
+        if not _is_ignored_product_path(Path(file.relative_path))
+    ]
     marketplaces = record.marketplaces or {}
     if isinstance(marketplaces, list) and all(
         isinstance(name, str) for name in marketplaces

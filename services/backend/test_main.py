@@ -135,6 +135,27 @@ def test_scan_products_extracts_catalog_metadata_and_primary_image(tmp_path):
     assert product.manifest["sku"] == "BRC-42"
 
 
+def test_scan_products_excludes_files_under_underscore_directories(tmp_path):
+    product_dir = tmp_path / "Memoria Ram DDR3"
+    ignored_nested_product = tmp_path / "_ignorar" / "Produto"
+    product_dir.mkdir()
+    ignored_nested_product.mkdir(parents=True)
+    (product_dir / "product.yaml").write_text("title: Memoria Ram DDR3\n", encoding="utf-8")
+    (product_dir / "cover.jpg").write_bytes(b"image")
+    (product_dir / "_Paste de teste").mkdir()
+    (product_dir / "_Paste de teste" / "images.jpg").write_bytes(b"ignored image")
+    (ignored_nested_product / "cover.jpg").write_bytes(b"ignored product")
+
+    products = _scan_products(tmp_path)
+
+    assert len(products) == 1
+    product = products[0]
+    assert product.name == "Memoria Ram DDR3"
+    assert product.images == ["Memoria Ram DDR3/cover.jpg"]
+    assert all("_Paste de teste" not in file.relative_path for file in product.files)
+    assert all(not Path(file.relative_path).parts[0].startswith("_") for file in product.files)
+
+
 def test_scan_products_extracts_sku_from_filename_and_seeds_manifest(tmp_path):
     product_dir = tmp_path / "Suporte drone"
     product_dir.mkdir()
@@ -750,7 +771,10 @@ def test_folder_group_filter_suggests_parent_category_without_overriding_yaml(pr
 
 
 def test_product_media_converts_to_webp_and_rejects_other_products(product_api):
-    client, _, _, _, product_id = product_api
+    client, _, _, product_dir, product_id = product_api
+    ignored_folder = product_dir / "_Paste de teste"
+    ignored_folder.mkdir()
+    (ignored_folder / "images.jpg").write_bytes(b"ignored image")
 
     response = client.get(
         f"/api/products/{product_id}/media/Test%20item/cover.png?thumbnail=true"
@@ -761,6 +785,9 @@ def test_product_media_converts_to_webp_and_rejects_other_products(product_api):
     transparent = client.get(
         f"/api/products/{product_id}/media/Test%20item/removebg-preview.png?thumbnail=true"
     )
+    ignored = client.get(
+        f"/api/products/{product_id}/media/Test%20item/_Paste%20de%20teste/images.jpg"
+    )
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/webp"
@@ -768,3 +795,4 @@ def test_product_media_converts_to_webp_and_rejects_other_products(product_api):
     assert response.content[8:12] == b"WEBP"
     assert Image.open(BytesIO(transparent.content)).mode == "RGBA"
     assert escaped.status_code == 404
+    assert ignored.status_code == 404

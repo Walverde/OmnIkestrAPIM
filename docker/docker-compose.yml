@@ -39,8 +39,10 @@ services:
     volumes:
       - ../services/backend:/app
       - type: bind
-        source: "${PRODUCTS_DIR:-../data/products}"
+        source: "${PRODUCTS_DIR:-../../OmnIkestrAPIM-Products}"
         target: /data/products
+        bind:
+          create_host_path: false
     depends_on:
       db:
         condition: service_healthy
@@ -67,8 +69,10 @@ services:
     volumes:
       - ../services/watcher:/app
       - type: bind
-        source: "${PRODUCTS_DIR:-../data/products}"
+        source: "${PRODUCTS_DIR:-../../OmnIkestrAPIM-Products}"
         target: /data/products
+        bind:
+          create_host_path: false
     depends_on:
       - backend
     networks:

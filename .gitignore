@@ -207,6 +207,8 @@ tempCodeRunnerFile.py
 
 # Local product files and development database
 /data/
+/Products/
+/products/
 /secrets/
 /backups/
 

@@ -70,7 +70,7 @@ services:
       - marketplace_action_token
     volumes:
       - type: bind
-        source: /mnt/gbZaid/OmnIkestrAPIM/products
+        source: /mnt/gbZaid/OmnIkestrAPIM-Products
         target: /data/products
         bind:
           create_host_path: false
@@ -99,7 +99,7 @@ services:
       PGID: "568"
     volumes:
       - type: bind
-        source: /mnt/gbZaid/OmnIkestrAPIM/products
+        source: /mnt/gbZaid/OmnIkestrAPIM-Products
         target: /data/products
         bind:
           create_host_path: false

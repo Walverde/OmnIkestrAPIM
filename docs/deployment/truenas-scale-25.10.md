@@ -16,15 +16,110 @@ backup e restauração.
 
 O Compose versionado está configurado para:
 
-- `/mnt/gbZaid/OmnIkestrAPIM/products` — produtos.
+- `/mnt/gbZaid/OmnIkestrAPIM-Products` — dataset persistente dos produtos,
+  separado do checkout Git e mantido entre atualizações.
 - `/mnt/gbZaid/OmnIkestrAPIM/postgres` — dados persistentes do PostgreSQL.
 - `/mnt/gbZaid/OmnIkestrAPIM/secrets/postgres_password` — arquivo secreto no
   host, fora do Git.
 
-Crie os caminhos/datasets antes de instalar. `create_host_path: false` evita
-que caminhos incorretos virem diretórios vazios silenciosamente. Se o pool,
-IP ou nomes forem diferentes, ajuste os caminhos no
-`docker/docker-compose.truenas.yml` e use o IP reservado do seu TrueNAS.
+Crie o dataset de produtos uma única vez pela interface do TrueNAS ou pelo
+procedimento de armazenamento do operador, atribuindo acesso de leitura e
+gravação a `568:568`. Não o crie dentro do checkout. O Compose usa
+`create_host_path: false`: se o dataset não estiver montado no caminho
+esperado, a inicialização deve falhar em vez de criar uma pasta vazia.
+Se o pool, IP ou nomes forem diferentes, ajuste os caminhos no
+`docker/docker-compose.truenas.yml`.
+
+## Preservar produtos durante atualizações
+
+Os arquivos de produtos são dados do operador, não código da aplicação. No
+TrueNAS, mantenha-os no dataset dedicado
+`/mnt/gbZaid/OmnIkestrAPIM-Products`, montado como `/data/products` nos
+containers. O dataset é criado e populado uma vez; atualizações do código
+recriam apenas os containers e não copiam, apagam ou substituem o dataset.
+Não coloque o dataset dentro do checkout usado para `git pull`. No Compose de
+desenvolvimento, `PRODUCTS_DIR` seleciona um caminho persistente externo ao
+checkout e o destino dentro dos containers permanece `/data/products`.
+
+### Migração única do diretório existente
+
+O caminho anterior citado em instruções e relatos variou entre `Products` e
+`products`. TrueNAS é sensível a maiúsculas/minúsculas; confirme qual diretório
+contém os manifestos antes de copiar. Não inicie a nova stack até que o novo
+dataset esteja criado, montado e validado:
+
+1. Pare backend e watcher e, no TrueNAS, crie o dataset
+   `/mnt/gbZaid/OmnIkestrAPIM-Products` com ACL/permissões para UID/GID
+   `568:568`. Confirme que está montado nesse caminho e vazio.
+2. No Shell, inspecione as duas origens candidatas. Escolha **somente** a que
+   contém os diretórios de produtos e `product.yaml`; não crie a origem se ela
+   não existir:
+
+   ```bash
+   sudo ls -la /mnt/gbZaid/OmnIkestrAPIM/Products
+   sudo ls -la /mnt/gbZaid/OmnIkestrAPIM/products
+   sudo find /mnt/gbZaid/OmnIkestrAPIM/Products /mnt/gbZaid/OmnIkestrAPIM/products \
+     -type f -name product.yaml -print 2>/dev/null
+   ```
+
+3. Após identificar a origem real, copie seu **conteúdo** para o dataset novo
+   com metadados preservados. Substitua `<origem-confirmada>` pelo caminho
+   existente (`Products` ou `products`). Não use `--delete` e não apague a
+   origem:
+
+   ```bash
+   sudo rsync -aHAX --numeric-ids \
+     "/mnt/gbZaid/OmnIkestrAPIM/<origem-confirmada>/" \
+     /mnt/gbZaid/OmnIkestrAPIM-Products/
+   sudo find /mnt/gbZaid/OmnIkestrAPIM-Products -type f -name product.yaml -print
+   ```
+
+4. Compare a quantidade de manifestos e alguns arquivos/mídias na origem e no
+   destino; confirme ACL/permissões no destino. Mantenha a origem intacta
+   como cópia de segurança até validar catálogo, mídia e edição de um produto
+   pelo aplicativo. Se o destino não tiver os dados esperados, pare e não
+   reimplante.
+5. Aplique o Compose atualizado e confirme que backend e watcher montaram
+   `/mnt/gbZaid/OmnIkestrAPIM-Products` em `/data/products`. Só depois de
+   validar o catálogo e um backup independente, decida manualmente o destino
+   da cópia antiga.
+
+Por segurança, o `.gitignore` da raiz exclui `Products/` e `products/` na
+raiz do repositório, além de `/data/`. Isso protege pastas locais não
+rastreadas contra um `git clean -fd` comum, mas não protege arquivos já
+rastreados nem um `git clean -fdx` (que também remove itens ignorados).
+Confira o caminho antes de limpar o checkout e não use `git clean -fdx` no
+diretório que contém dados:
+
+```bash
+git status --short
+git clean -nd
+```
+
+O segundo comando apenas pré-visualiza o que um `git clean -fd` removeria.
+Se for necessário executar uma limpeza, preserve explicitamente dados locais
+e configuração:
+
+```bash
+git clean -fd -e Products/ -e products/ -e data/ -e docker/.env
+```
+
+Não use `docker compose down -v` para atualização: a opção `-v` remove volumes
+nomeados do Docker. Use o bind mount persistente configurado no Compose e
+confira o `source` antes de recriar containers. Um `git pull` não remove dados
+fora do checkout; se os arquivos sumiram, verifique primeiro se o dataset
+continua no host e se o container está montando o caminho correto:
+
+```bash
+sudo ls -la /mnt/gbZaid/OmnIkestrAPIM-Products
+sudo docker compose -f docker-compose.truenas.yml config
+```
+
+Se os produtos e `product.yaml` ainda existirem no dataset, mas não estiverem
+listados, o problema pode ser somente o índice PostgreSQL. Refaça a
+reindexação pelo painel/configuração ou pela API `POST /api/products/scan`;
+isso reconstrói o catálogo a partir dos manifestos, mas não recupera arquivos
+apagados do dataset.
 
 ## Imagens fixadas
 
@@ -274,7 +369,7 @@ sudo docker compose -f docker-compose.truenas.yml stop backend watcher
 set -o pipefail
 sudo docker compose -f docker-compose.truenas.yml exec -T db \
   pg_dump -U omnikestr -d omnikestr -Fc | sudo tee "$BACKUP_DIR/catalog.dump" >/dev/null
-sudo tar -C /mnt/gbZaid/OmnIkestrAPIM -czf "$BACKUP_DIR/products.tar.gz" products
+sudo tar -C /mnt/gbZaid -czf "$BACKUP_DIR/products.tar.gz" OmnIkestrAPIM-Products
 sudo docker compose -f docker-compose.truenas.yml start backend watcher
 ```
 

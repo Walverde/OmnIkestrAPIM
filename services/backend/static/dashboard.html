@@ -100,6 +100,24 @@
       color: #fff;
     }
 
+    .build-info {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 0 0 28px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .build-info a {
+      color: var(--forest);
+      font-weight: 700;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
     main {
       width: min(1180px, calc(100% - 40px));
       margin: 36px auto 80px;
@@ -536,6 +554,12 @@
         </div>
       </div>
     </section>
+
+    <footer class="build-info" aria-label="Versão da aplicação">
+      <span>Versão do servidor:</span>
+      <span id="server-build" aria-live="polite">Carregando...</span>
+      <a href="/api/health" target="_blank" rel="noopener">Detalhes</a>
+    </footer>
   </main>
 
   <script>
@@ -550,6 +574,7 @@
     const notificationsList = document.querySelector('#notifications-list');
     const updatesList = document.querySelector('#updates-list');
     const scanButton = document.querySelector('#scan-button');
+    const serverBuildEl = document.querySelector('#server-build');
 
     function formatRelativeTime(value) {
       if (!value) return 'Nunca';
@@ -634,6 +659,13 @@
 
         const products = productsResponse.products || [];
         const events = eventsResponse.events || [];
+        const commit = health.commit || 'unknown';
+        const shortCommit = commit === 'unknown' ? commit : commit.slice(0, 7);
+        const buildDate = health.built_at && health.built_at !== 'unknown'
+          ? new Date(health.built_at).toLocaleString('pt-BR')
+          : 'data não informada';
+        serverBuildEl.textContent = `${health.version || 'development'} · ${shortCommit}`;
+        serverBuildEl.title = `Build: ${health.version || 'development'}\nCommit: ${commit}\nGerado em: ${buildDate}`;
         const totalFiles = products.reduce((sum, product) => sum + (product.files?.length || 0), 0);
         const manifestCount = products.filter((product) => product.has_manifest).length;
 
@@ -667,6 +699,8 @@
         renderNotifications(notifications);
         renderUpdates(events);
       } catch (error) {
+        serverBuildEl.textContent = 'Não foi possível consultar';
+        serverBuildEl.title = '';
         productCountEl.textContent = '0';
         fileCountEl.textContent = '0';
         eventCountEl.textContent = '0';

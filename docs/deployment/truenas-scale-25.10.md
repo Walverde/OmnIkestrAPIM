@@ -43,6 +43,17 @@ também o digest do PostgreSQL apenas quando deliberadamente selecionar outra
 versão. Registre os três valores anteriores em local seguro para rollback.
 Não substitua os digests por `latest`.
 
+O backend publicado inclui `BUILD_VERSION`, `BUILD_COMMIT` e `BUILD_DATE`,
+injetados pelo workflow a cada build. Consulte `/api/health` para ver esses
+metadados ou confira o rodapé **Versão do servidor** no painel. Compare o
+commit exibido com o commit esperado antes de considerar a atualização
+aplicada; a resposta do endpoint não é armazenada em cache.
+
+Os digests atualmente registrados são os da implantação anterior e ainda não
+incluem as alterações D/E/F deste checkout. Não considere essas funções
+implantadas no NAS até publicar e validar novas imagens backend/watcher e
+atualizar os dois digests juntos.
+
 ## Senha do PostgreSQL
 
 O Compose não contém a senha. Crie uma senha hexadecimal aleatória de 32 bytes
@@ -110,6 +121,140 @@ senhas; um dump lógico do PostgreSQL não inclui a senha da role.
 
 O backend aguarda o PostgreSQL saudável e aplica migrações Alembic ao iniciar.
 Não execute SQL de migração manualmente.
+
+## Etapas D, E e F — integrações, preço e observabilidade
+
+### Hard floor por produto
+
+Cada `product.yaml` pode declarar `price_floor`. A API rejeita qualquer
+alteração que deixe `price` abaixo desse valor; a regra é validada no backend,
+não apenas na interface. Se o piso for aumentado, envie também um preço igual
+ou superior no mesmo PATCH quando já existir um preço abaixo do novo piso.
+Alterações de preço aceitas ficam em `GET /api/products/{id}/price-audit`;
+tentativas rejeitadas não alteram o manifesto nem criam auditoria de sucesso.
+
+Exemplo:
+
+```yaml
+price: 250
+price_floor: 200
+```
+
+### OAuth e publicação manual no Mercado Livre
+
+Antes de habilitar o conector, registre no aplicativo de desenvolvedor do
+Mercado Livre o callback exato configurado em `MELI_REDIRECT_URI`. Ele deve
+ser alcançável pelo navegador durante a autorização e atender aos requisitos
+do provedor; não exponha a API diretamente à internet para isso. Prepare os
+segredos abaixo em `/mnt/gbZaid/OmnIkestrAPIM/secrets/`, com proprietário
+`root:568` e modo `0440` para leitura pelo backend:
+
+- `mercadolivre_client_id` — Client ID do app Mercado Livre.
+- `mercadolivre_client_secret` — Client Secret do app.
+- `marketplace_token_key` — chave Fernet URL-safe de 32 bytes para cifrar
+  tokens OAuth no PostgreSQL.
+- `marketplace_action_token` — segredo aleatório hexadecimal usado como
+  confirmação adicional para publicar pela API.
+
+Crie os quatro arquivos; preencha o Client ID e o Client Secret pelo editor
+interativo, sem colocá-los em argumentos de shell:
+
+```bash
+sudo install -o root -g 568 -m 0440 /dev/null /mnt/gbZaid/OmnIkestrAPIM/secrets/mercadolivre_client_id
+sudo install -o root -g 568 -m 0440 /dev/null /mnt/gbZaid/OmnIkestrAPIM/secrets/mercadolivre_client_secret
+sudo install -o root -g 568 -m 0440 /dev/null /mnt/gbZaid/OmnIkestrAPIM/secrets/marketplace_token_key
+sudo install -o root -g 568 -m 0440 /dev/null /mnt/gbZaid/OmnIkestrAPIM/secrets/marketplace_action_token
+sudo nano /mnt/gbZaid/OmnIkestrAPIM/secrets/mercadolivre_client_id
+sudo nano /mnt/gbZaid/OmnIkestrAPIM/secrets/mercadolivre_client_secret
+```
+
+Gere a chave Fernet sem imprimi-la no terminal:
+
+```bash
+openssl rand -base64 32 | tr '+/' '-_' | sudo tee /mnt/gbZaid/OmnIkestrAPIM/secrets/marketplace_token_key >/dev/null
+sudo chown root:568 /mnt/gbZaid/OmnIkestrAPIM/secrets/marketplace_token_key
+sudo chmod 0440 /mnt/gbZaid/OmnIkestrAPIM/secrets/marketplace_token_key
+```
+
+Gere `marketplace_action_token` com `openssl rand -hex 32`; copie-o
+diretamente para o gerenciador de senhas e para o editor interativo do arquivo,
+sem inserir o valor no comando:
+
+```bash
+sudo nano /mnt/gbZaid/OmnIkestrAPIM/secrets/marketplace_action_token
+```
+
+Reaplique proprietário e modo `0440` depois de editar qualquer arquivo
+secreto. Não troque
+`marketplace_token_key` depois de vincular a conta: os tokens persistidos
+deixarão de ser descriptografáveis; será necessário restaurar a chave antiga
+ou revogar e autorizar novamente a conta. O Client ID/secret e a chave Fernet
+nunca devem ser enviados ao navegador ou incluídos em logs.
+
+Configure no ambiente do Custom App:
+
+- `MELI_REDIRECT_URI` — exatamente o callback registrado no aplicativo.
+- `MELI_SITE_ID` e `MELI_CURRENCY_ID` — padrão do Compose: `MLB` e `BRL`.
+- `MELI_LISTING_TYPE_ID` — tipo de anúncio habilitado para a conta.
+- `MELI_CATEGORY_ID` — categoria usada quando o produto não declara
+  `marketplaces.mercadolivre.category_id`.
+- `MELI_AVAILABLE_QUANTITY` — quantidade a anunciar, padrão `1`.
+- `MELI_MIN_REQUEST_INTERVAL_SECONDS` — intervalo mínimo entre chamadas,
+  padrão de um segundo.
+- `TRUENAS_LAN_IP` — IP LAN reservado do NAS, padrão `192.168.100.58`;
+  mantenha a publicação da porta vinculada apenas a esse IP.
+
+Recrie o backend após instalar os secrets e parâmetros. No produto, habilite
+Mercado Livre e preencha `price`, `price_floor`, `condition` e a categoria
+adequada. A tela oferece a vinculação OAuth e a ação **Publicar no Mercado
+Livre**; a publicação exige confirmação explícita e o token de ação secreto.
+O backend enfileira a tarefa no PostgreSQL, envia as imagens válidas, cria ou
+atualiza o anúncio e grava o ID externo no manifesto. Pastas iniciadas por `_`
+continuam excluídas da mídia.
+
+O adaptador usa OAuth2, guarda access/refresh tokens cifrados no banco e
+renova tokens expirados. A fila persistente processa uma tarefa por vez no
+backend, aplica intervalo mínimo entre chamadas e tenta novamente erros
+transitórios com backoff limitado. Erros de validação não são repetidos. A
+integração precisa ser validada com credenciais reais e um produto de teste
+antes de publicar dados de produção; respostas/API do Mercado Livre podem
+exigir ajustes por categoria, site ou conta.
+
+### IA local — Ollama instalado no TrueNAS
+
+A aplicação usará somente o App Ollama local mostrado no catálogo do TrueNAS;
+não será configurado LiteLLM, chave de IA em nuvem ou fallback externo. O
+Compose passa ao backend estas variáveis para a futura integração:
+
+- `OLLAMA_BASE_URL` — URL HTTP da API Ollama alcançável **a partir do container
+  backend**, normalmente `http://<IP-do-TrueNAS>:11434` se o App publicar a
+  porta padrão. Use o endereço/porta apresentados na configuração do App.
+- `OLLAMA_MODEL` — nome exato de um modelo já baixado no Ollama, por exemplo
+  `llama3.2`; escolha conforme os recursos disponíveis no NAS.
+
+Defina essas variáveis no ambiente do Custom App e confirme que o backend
+consegue alcançar a API e que o modelo está disponível. Não presuma que
+`localhost` dentro do backend aponta para o TrueNAS. A configuração apenas
+prepara o endpoint e o modelo: geração de conteúdo, tela de IA e validação de
+conectividade ainda dependem da implementação da Etapa H e não ficam ativos
+por definir essas variáveis.
+
+### Eventos, logs e métricas
+
+- Eventos de alterações do catálogo, mudanças de preço e tarefas de
+  marketplace ficam registrados em `domain_events`; consulte
+  `GET /api/marketplaces/events`.
+- A fila está disponível em `GET /api/marketplaces/jobs/{id}`. Estados
+  `failed` e erros aparecem também nos eventos e logs do backend.
+- Os logs do backend são emitidos em JSON, com evento/tarefa e erro sem
+  registrar tokens ou segredos.
+- `GET /metrics` expõe métricas Prometheus de requisições HTTP e resultado de
+  tarefas. Restrinja esse endpoint à mesma rede operacional confiável; não o
+  publique na internet.
+- Alertas externos devem ser configurados no coletor Prometheus/stack de
+  observabilidade do operador, por exemplo para crescimento de tarefas
+  `failed` ou erros HTTP. O app não envia notificações externas por conta
+  própria.
 
 ## Backup, atualização e rollback
 

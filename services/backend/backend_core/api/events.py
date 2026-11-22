@@ -12,6 +12,7 @@ from ..catalog import (
 )
 from ..models import (
     DEFAULT_WORKSPACE_ID,
+    DomainEventRecord,
     ProductEvent,
     ProductEventRecord,
 )
@@ -91,6 +92,20 @@ def receive_product_event(event: ProductEvent, db: Session = Depends(get_db)):
         or runtime.PRODUCTS_ROOT
     )
     indexed_products = _sync_product_for_event(db, root, event)
+    db.add(
+        DomainEventRecord(
+            workspace_id=event.workspace_id,
+            event_type="catalog.filesystem.changed",
+            aggregate_id=str(record.id),
+            payload={
+                "event": event.event,
+                "path": event.path,
+                "destination_path": event.destination_path,
+                "is_directory": event.is_directory,
+            },
+        )
+    )
+    db.commit()
     _prune_product_events(db, event.workspace_id)
     return {
         "status": "accepted",

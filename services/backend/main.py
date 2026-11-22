@@ -1,9 +1,13 @@
+import asyncio
+import json
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from sqlalchemy.orm import Session
 
+from backend_core.api.observability import HTTP_REQUESTS, router as observability_router
 from backend_core import runtime
 from backend_core.api.config import (
     restore_saved_product_roots,
@@ -13,6 +17,7 @@ from backend_core.api.dependencies import get_db
 from backend_core.api.events import router as events_router
 from backend_core.api.local import router as local_router
 from backend_core.api.media import router as media_router
+from backend_core.api.marketplaces import router as marketplaces_router
 from backend_core.api.products import router as products_router
 from backend_core.api.system import router as system_router
 from backend_core.catalog import (
@@ -65,10 +70,34 @@ from backend_core.models import (
     ProductSummary,
     WorkspaceRecord,
 )
+from backend_core.marketplace_worker import run_marketplace_worker
+
+
+logging.basicConfig(level=logging.INFO, force=True)
 
 
 MAX_PRODUCT_EVENTS = runtime.MAX_PRODUCT_EVENTS
 PRODUCT_EVENT_RETENTION_DAYS = runtime.PRODUCT_EVENT_RETENTION_DAYS
+
+
+class JsonLogFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        for field in ("event", "job_id", "provider", "attempt", "error"):
+            if hasattr(record, field):
+                payload[field] = getattr(record, field)
+        if record.exc_info:
+            payload["exception"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=True)
+
+
+for handler in logging.getLogger().handlers:
+    handler.setFormatter(JsonLogFormatter())
 
 
 def _apply_product_roots(roots: list[str | Path] | tuple[str | Path, ...]) -> tuple[Path, ...]:
@@ -101,7 +130,13 @@ async def lifespan(_: FastAPI):
     with SessionLocal() as db:
         restore_saved_product_roots(db)
         _sync_product_catalog_for_roots(db, runtime.PRODUCT_ROOTS)
-    yield
+    stop_event = asyncio.Event()
+    worker_task = asyncio.create_task(run_marketplace_worker(stop_event))
+    try:
+        yield
+    finally:
+        stop_event.set()
+        await worker_task
 
 
 app = FastAPI(
@@ -117,6 +152,21 @@ app.include_router(events_router)
 app.include_router(products_router)
 app.include_router(local_router)
 app.include_router(media_router)
+app.include_router(marketplaces_router)
+app.include_router(observability_router)
+
+
+@app.middleware("http")
+async def collect_http_metrics(request, call_next):
+    response = await call_next(request)
+    route = request.scope.get("route")
+    route_name = route.path if route is not None else "unmatched"
+    HTTP_REQUESTS.labels(
+        method=request.method,
+        route=route_name,
+        status=str(response.status_code),
+    ).inc()
+    return response
 
 
 def __getattr__(name: str):

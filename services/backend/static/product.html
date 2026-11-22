@@ -226,6 +226,7 @@
       }
       addField('status','Estado',product.status || 'pending',null,[['pending','Pendente'],['published','Publicado'],['sold','Vendido'],['archived','Arquivado']]);
       addField('price','Preço',product.price,'number');
+      addField('price_floor','Piso mínimo',product.price_floor,'number');
       addField('cost','Custo',product.cost,'number');
       addField('condition','Condição',product.condition,null,[['','Não definida'],['new','Novo'],['used','Usado'],['refurbished','Recondicionado']]);
       addMarketplaceField();
@@ -237,6 +238,77 @@
       actions.append(discard,save); form.append(actions);
       const saveState = element('p','save-state'); saveState.id='save-state';
       editor.append(summary,form,saveState);
+      const marketplaceActions = element('div', 'form-actions');
+      const connectMarketplace = element('button', 'button secondary', 'Vincular Mercado Livre');
+      connectMarketplace.type = 'button';
+      connectMarketplace.addEventListener('click', async () => {
+        saveState.textContent = 'Abrindo autorização do Mercado Livre...';
+        saveState.classList.remove('error');
+        try {
+          const response = await fetch('/api/marketplaces/mercadolivre/authorize');
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || 'Não foi possível iniciar a autorização.');
+          location.assign(result.authorization_url);
+        } catch (error) {
+          saveState.textContent = error.message;
+          saveState.classList.add('error');
+        }
+      });
+      marketplaceActions.append(connectMarketplace);
+      const meliConfig = product.marketplaces?.mercadolivre || {};
+      if (meliConfig.enabled) {
+        const actionToken = element('input');
+        actionToken.type = 'password';
+        actionToken.autocomplete = 'off';
+        actionToken.placeholder = 'Token de confirmação manual';
+        actionToken.setAttribute('aria-label', 'Token de confirmação manual');
+        const publish = element('button', 'button primary', 'Publicar no Mercado Livre');
+        publish.type = 'button';
+        publish.addEventListener('click', async () => {
+          if (!confirm('Confirma a publicação/sincronização deste produto no Mercado Livre?')) return;
+          if (!actionToken.value) {
+            saveState.textContent = 'Informe o token de confirmação manual.';
+            saveState.classList.add('error');
+            return;
+          }
+          publish.disabled = true;
+          saveState.textContent = 'Enfileirando publicação...';
+          saveState.classList.remove('error');
+          try {
+            const response = await fetch(`/api/marketplaces/mercadolivre/products/${encodeURIComponent(productId)}/publish`, {
+              method: 'POST',
+              headers: { 'X-Marketplace-Action-Token': actionToken.value },
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.detail || 'Não foi possível enfileirar a publicação.');
+            saveState.textContent = `Publicação enfileirada (tarefa ${result.job_id}).`;
+            for (let attempt = 0; attempt < 30; attempt += 1) {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              const jobResponse = await fetch(`/api/marketplaces/jobs/${result.job_id}`);
+              const job = await jobResponse.json();
+              if (!jobResponse.ok) throw new Error(job.detail || 'Não foi possível consultar a tarefa.');
+              if (job.status === 'succeeded') {
+                saveState.textContent = job.result?.permalink
+                  ? `Anúncio sincronizado: ${job.result.permalink}`
+                  : `Anúncio sincronizado (${job.result?.item_id || 'ID não informado'}).`;
+                return;
+              }
+              if (job.status === 'failed') {
+                throw new Error(job.last_error || 'A publicação falhou.');
+              }
+              saveState.textContent = `Publicação em andamento (tarefa ${result.job_id}).`;
+            }
+            saveState.textContent = `A tarefa ${result.job_id} continua em andamento. Consulte novamente mais tarde.`;
+          } catch (error) {
+            saveState.textContent = error.message;
+            saveState.classList.add('error');
+          } finally {
+            publish.disabled = false;
+          }
+        });
+        marketplaceActions.append(actionToken, publish);
+      }
+      editor.append(marketplaceActions);
       layout.append(gallery,editor); main.append(layout);
 
       function clearErrors() {
@@ -267,6 +339,7 @@
           category: form.elements.category.value || null,
           status: form.elements.status.value,
           price: form.elements.price.value ? Number(form.elements.price.value) : null,
+          price_floor: form.elements.price_floor.value ? Number(form.elements.price_floor.value) : null,
           cost: form.elements.cost.value ? Number(form.elements.cost.value) : null,
           condition: form.elements.condition.value || null,
           marketplaces,

@@ -233,6 +233,7 @@ def _analyze_product(
         category=category,
         description=_metadata_value(manifest, "description", "descricao", "descrição"),
         price=manifest.get("price") if manifest and not manifest_error else None,
+        price_floor=manifest.get("price_floor") if manifest and not manifest_error else None,
         cost=manifest.get("cost") if manifest and not manifest_error else None,
         condition=manifest.get("condition") if manifest and not manifest_error else None,
         status=manifest.get("status") if manifest and not manifest_error else None,
@@ -417,6 +418,7 @@ def _upsert_product_record(
     record.category = product.category
     record.description = product.description
     record.price = product.price
+    record.price_floor = product.price_floor
     record.cost = product.cost
     record.condition = product.condition
     record.status = product.status or "pending"
@@ -634,6 +636,7 @@ def _serialize_product(record: ProductRecord) -> dict[str, object]:
         description=record.description,
         price=record.price,
         cost=record.cost,
+        price_floor=record.price_floor,
         condition=record.condition,
         status=record.status,
         marketplaces=marketplaces,

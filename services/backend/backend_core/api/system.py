@@ -1,7 +1,8 @@
+import os
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,11 +18,14 @@ STATIC_ROOT = Path(__file__).resolve().parents[2] / "static"
 
 
 @router.get("/api/health")
-def health_check():
+def health_check(response: Response):
+    response.headers["Cache-Control"] = "no-store"
     return {
         "status": "healthy",
         "service": "OmnIkestrAPIM Core Backend",
-        "version": "0.1.0",
+        "version": os.getenv("BUILD_VERSION", "development"),
+        "commit": os.getenv("BUILD_COMMIT", "unknown"),
+        "built_at": os.getenv("BUILD_DATE", "unknown"),
     }
 
 

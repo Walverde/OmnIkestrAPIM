@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, List, Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -60,6 +60,104 @@ class ProductEventRecord(Base):
     )
 
 
+class PriceAuditRecord(Base):
+    __tablename__ = "price_audits"
+    __table_args__ = (
+        Index("ix_price_audits_workspace_created_at", "workspace_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
+    product_uuid: Mapped[str] = mapped_column(String(36), index=True)
+    old_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    new_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    price_floor: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    source: Mapped[str] = mapped_column(String(32), default="manual")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class MarketplaceCredentialRecord(Base):
+    __tablename__ = "marketplace_credentials"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "provider", name="uq_marketplace_credentials_workspace_provider"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64))
+    account_id: Mapped[str] = mapped_column(String(128))
+    access_token_encrypted: Mapped[str] = mapped_column(String(4096))
+    refresh_token_encrypted: Mapped[str] = mapped_column(String(4096))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class MarketplaceOAuthStateRecord(Base):
+    __tablename__ = "marketplace_oauth_states"
+
+    state: Mapped[str] = mapped_column(String(128), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class MarketplaceJobRecord(Base):
+    __tablename__ = "marketplace_jobs"
+    __table_args__ = (
+        Index("ix_marketplace_jobs_status_available", "status", "available_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64))
+    job_type: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(default=0)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    last_error: Mapped[str | None] = mapped_column(String(2048))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DomainEventRecord(Base):
+    __tablename__ = "domain_events"
+    __table_args__ = (
+        Index("ix_domain_events_workspace_created_at", "workspace_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id"), default=DEFAULT_WORKSPACE_ID, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(128), index=True)
+    aggregate_id: Mapped[str | None] = mapped_column(String(128))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class MarketplaceConfig(BaseModel):
     model_config = {"extra": "allow"}
 
@@ -75,11 +173,22 @@ class ProductManifest(BaseModel):
     title: str = Field(min_length=1)
     category: str | None = None
     price: Decimal | None = Field(default=None, ge=0)
+    price_floor: Decimal | None = Field(default=None, ge=0)
     cost: Decimal | None = Field(default=None, ge=0)
     condition: Literal["new", "used", "refurbished"] | None = None
     status: Literal["pending", "published", "sold", "archived"] = "pending"
     marketplaces: dict[str, MarketplaceConfig] = Field(default_factory=dict)
     description: str | None = None
+
+    @model_validator(mode="after")
+    def price_respects_floor(self):
+        if (
+            self.price is not None
+            and self.price_floor is not None
+            and self.price < self.price_floor
+        ):
+            raise ValueError(f"O preço não pode ser menor que o piso de {self.price_floor}.")
+        return self
 
 
 class ProductManifestPatch(BaseModel):
@@ -89,6 +198,7 @@ class ProductManifestPatch(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     category: str | None = None
     price: Decimal | None = Field(default=None, ge=0)
+    price_floor: Decimal | None = Field(default=None, ge=0)
     cost: Decimal | None = Field(default=None, ge=0)
     condition: Literal["new", "used", "refurbished"] | None = None
     status: Literal["pending", "published", "sold", "archived"] | None = None
@@ -125,6 +235,7 @@ class ProductRecord(Base):
     description: Mapped[str | None] = mapped_column(String(4096))
     price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     cost: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    price_floor: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     condition: Mapped[str | None] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     marketplaces: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -179,6 +290,7 @@ class ProductSummary(BaseModel):
     description: str | None = None
     price: Decimal | None = None
     cost: Decimal | None = None
+    price_floor: Decimal | None = None
     condition: str | None = None
     status: str | None = None
     marketplaces: dict[str, MarketplaceConfig] = Field(default_factory=dict)

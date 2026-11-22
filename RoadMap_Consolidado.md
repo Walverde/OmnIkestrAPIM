@@ -81,6 +81,12 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 
 - [x] Separar API, modelos, acesso ao banco, catálogo e mídia por domínio, mantendo `main.py` como ponto de entrada compatível com execução, testes e migrações existentes (concluído em 05/11/2026).
 
+### 3.5 Inteligência Artificial
+
+- [x] Usar exclusivamente o Ollama local instalado como App no TrueNAS, sem
+  fallback para provedores em nuvem; configurar URL e modelo por instalação
+  (decisão registrada em 22/11/2026).
+
 ---
 
 ## 4. Roadmap de Desenvolvimento (Oficial)
@@ -154,29 +160,31 @@ Status: concluído em 22/11/2026, conforme validação reportada no ambiente rea
 ---
 
 ### Etapa D — Abstração de Marketplaces e Conector Mercado Livre
-**Status:** Proposta
+**Status:** Em implementação — base do conector e publicação manual implementadas em 22/11/2026; validação externa pendente
 
-- [ ] Construção da camada de abstração comum entre múltiplos marketplaces
+- [x] Construção da camada de abstração comum por interface de conector e registry; validar novos adaptadores ao adicioná-los
 - [ ] Conector Mercado Livre:
-  - [ ] Autenticação OAuth2 + gestão segura de credenciais e renovação de tokens
-  - [ ] Publicação e sincronização automática de anúncios a partir dos YAMLs
-  - [ ] Controle de *rate limit* e gerenciamento de filas de requisição
+  - [-] Autenticação OAuth2 com estado de uso único, tokens cifrados no PostgreSQL e renovação automática; falta validar com credenciais reais no TrueNAS
+  - [-] Publicação/sincronização manual explícita a partir do manifesto, com enfileiramento persistente e ID externo salvo; automação de sincronização permanece fora do escopo atual e o fluxo real depende de validação de conta/categoria
+  - [x] Intervalo mínimo entre chamadas, fila persistente no PostgreSQL, backoff/retry de erros transitórios e endpoint de estado da tarefa
 
 ---
 
 ### Etapa E — Motor de Precificação e Salvaguardas
-**Status:** Proposta
+**Status:** Em implementação — piso e auditoria implementados em 22/11/2026; execução dos testes automatizados pendente
 
-- [ ] Implantação do piso de preço (*hard floor*) aplicado **diretamente no motor** do backend
-- [ ] Regras de precificação automática com limites verificáveis e trilha de auditoria
+- [-] Piso explícito por produto (`price_floor`) aplicado na validação do backend e exigido antes da publicação; validar suíte e migração em runtime
+- [-] Rejeitar preços abaixo do piso e registrar alterações aceitas em `price_audits`; testes de regressão adicionados, mas ainda não executados
+- [ ] Regras adicionais de precificação automática com limites verificáveis; definir algoritmo/política antes de automatizar sugestões ou alterações
 
 ---
 
 ### Etapa F — Camada de Eventos e Observabilidade
-**Status:** Proposta
+**Status:** Em implementação — eventos, fila e telemetria locais implementados em 22/11/2026; validação operacional pendente
 
-- [ ] Introdução progressiva da camada orientada a eventos
-- [ ] Observabilidade: métricas, logs centralizados e alertas
+- [-] Eventos de catálogo, preço e integração persistidos em `domain_events`, com consulta via API; validar migrações e retenção em runtime
+- [-] Logs JSON e métricas Prometheus HTTP/fila disponíveis em `/metrics`; testes de integração ainda pendentes
+- [ ] Centralização externa de logs e configuração de alertas no coletor Prometheus/stack do operador
 
 ---
 
@@ -191,9 +199,11 @@ Status: concluído em 22/11/2026, conforme validação reportada no ambiente rea
 ---
 
 ### Etapa H — AI Enrichment (Local-first)
-**Status:** Proposta (após Etapa C ou D)
+**Status:** Proposta — Ollama local no TrueNAS definido como provedor exclusivo; funcionalidades de IA ainda não implementadas
 
-- [ ] Serviço de IA local via Ollama (ou LiteLLM como proxy)
+- [ ] Integrar ao serviço Ollama instalado no TrueNAS; sem LiteLLM,
+  provedores de nuvem ou fallback externo
+- [ ] Configurar URL da API e nome do modelo local por ambiente; validar conectividade e disponibilidade do modelo
 - [ ] Capacidade de gerar/sugerir:
   - Título otimizado
   - Descrição completa

@@ -17,6 +17,8 @@ from ..catalog import (
 )
 from ..models import (
     DEFAULT_WORKSPACE_ID,
+    DomainEventRecord,
+    PriceAuditRecord,
     ProductManifest,
     ProductManifestPatch,
     ProductRecord,
@@ -204,6 +206,32 @@ def patch_product_detail(
             status_code=500, detail="Não foi possível gravar o manifesto."
         ) from error
 
+    if "price" in changes.model_fields_set and changes.price != product.price:
+        db.add(
+            PriceAuditRecord(
+                workspace_id=workspace_id,
+                product_uuid=product.product_uuid,
+                old_price=product.price,
+                new_price=changes.price,
+                price_floor=validated_manifest.price_floor,
+                source="manual",
+            )
+        )
+        db.add(
+            DomainEventRecord(
+                workspace_id=workspace_id,
+                event_type="product.price.changed",
+                aggregate_id=product.product_uuid,
+                payload={
+                    "old_price": str(product.price) if product.price is not None else None,
+                    "new_price": str(changes.price) if changes.price is not None else None,
+                    "price_floor": str(validated_manifest.price_floor)
+                    if validated_manifest.price_floor is not None
+                    else None,
+                },
+            )
+        )
+
     product_root = next(
         (
             root
@@ -219,3 +247,43 @@ def patch_product_detail(
     db.commit()
     db.refresh(product)
     return _serialize_product(product)
+
+
+@router.get("/api/products/{product_id}/price-audit")
+def get_product_price_audit(
+    product_id: UUID,
+    workspace_id: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=64),
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    product = db.scalar(
+        select(ProductRecord).where(
+            ProductRecord.workspace_id == workspace_id,
+            ProductRecord.product_uuid == str(product_id),
+        )
+    )
+    if product is None:
+        raise HTTPException(status_code=404, detail="Produto não encontrado.")
+    records = db.scalars(
+        select(PriceAuditRecord)
+        .where(
+            PriceAuditRecord.workspace_id == workspace_id,
+            PriceAuditRecord.product_uuid == str(product_id),
+        )
+        .order_by(PriceAuditRecord.created_at.desc(), PriceAuditRecord.id.desc())
+        .limit(limit)
+    ).all()
+    return {
+        "audit": [
+            {
+                "old_price": record.old_price,
+                "new_price": record.new_price,
+                "price_floor": record.price_floor,
+                "source": record.source,
+                "created_at": record.created_at.isoformat()
+                if record.created_at
+                else None,
+            }
+            for record in records
+        ]
+    }

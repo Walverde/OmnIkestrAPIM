@@ -14,7 +14,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
 from backend_core import runtime
 from backend_core.api.config import restore_saved_product_roots
-from backend_core.models import AppSettingRecord
+from backend_core.models import AppSettingRecord, MarketplaceOAuthStateRecord
 from main import (
     Base,
     ProductEvent,
@@ -484,6 +484,24 @@ def test_dashboard_routes_return_html():
     assert "Dados do produto" in product_detail.text
 
 
+def test_health_endpoint_exposes_build_metadata_without_caching(monkeypatch):
+    monkeypatch.setenv("BUILD_VERSION", "v1.2.3")
+    monkeypatch.setenv("BUILD_COMMIT", "abcdef0123456789")
+    monkeypatch.setenv("BUILD_DATE", "2026-11-22T12:00:00Z")
+
+    response = TestClient(app).get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "healthy",
+        "service": "OmnIkestrAPIM Core Backend",
+        "version": "v1.2.3",
+        "commit": "abcdef0123456789",
+        "built_at": "2026-11-22T12:00:00Z",
+    }
+    assert response.headers["cache-control"] == "no-store"
+
+
 def test_local_picker_token_is_not_cacheable(monkeypatch):
     monkeypatch.setattr(runtime, "PICKER_TOKEN", "test-local-picker-token")
     response = TestClient(app).get("/api/local/picker-token")
@@ -735,6 +753,63 @@ def test_product_patch_reports_invalid_fields(product_api):
 
     assert response.status_code == 422
     assert any("price" in ".".join(str(part) for part in issue["loc"]) for issue in response.json()["detail"])
+
+
+def test_price_floor_rejects_lower_prices_and_records_changes(product_api):
+    client, _, product_root, _, product_id = product_api
+    floor_response = client.patch(
+        f"/api/products/{product_id}",
+        json={"price_floor": 200},
+    )
+    rejected_response = client.patch(
+        f"/api/products/{product_id}",
+        json={"price": 199},
+    )
+    accepted_response = client.patch(
+        f"/api/products/{product_id}",
+        json={"price": 220},
+    )
+    audit_response = client.get(f"/api/products/{product_id}/price-audit")
+
+    assert floor_response.status_code == 200
+    assert rejected_response.status_code == 422
+    assert accepted_response.status_code == 200
+    assert accepted_response.json()["price_floor"] == 200
+    assert audit_response.status_code == 200
+    assert audit_response.json()["audit"][0]["new_price"] == 220
+    manifest = yaml.safe_load(
+        (product_root / "Test item" / "product.yaml").read_text(encoding="utf-8")
+    )
+    assert manifest["price"] == 220
+    assert manifest["price_floor"] == 200
+
+
+def test_mercadolivre_authorization_stores_state_without_returning_secrets(product_api, monkeypatch):
+    client, database, _, _, _ = product_api
+    monkeypatch.setenv("MELI_CLIENT_ID", "client-id-test")
+    monkeypatch.setenv("MELI_CLIENT_SECRET", "client-secret-test")
+    monkeypatch.setenv(
+        "MELI_REDIRECT_URI", "https://nas.example.test/api/marketplaces/mercadolivre/callback"
+    )
+
+    response = client.get("/api/marketplaces/mercadolivre/authorize")
+
+    assert response.status_code == 200
+    assert "client-secret-test" not in response.text
+    assert "authorization_url" in response.json()
+    with Session(database) as session:
+        assert session.query(MarketplaceOAuthStateRecord).count() == 1
+
+
+def test_mercadolivre_publish_requires_manual_action_token(product_api):
+    client, _, _, _, product_id = product_api
+
+    response = client.post(
+        f"/api/marketplaces/mercadolivre/products/{product_id}/publish"
+    )
+
+    assert response.status_code == 403
+    assert "Token de confirmação manual" in response.json()["detail"]
 
 
 def test_product_filters_and_pagination(product_api):

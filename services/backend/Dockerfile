@@ -1,12 +1,19 @@
 # Usa uma imagem oficial do Python, versão slim para ser mais leve
 FROM python:3.11-slim
 
+ARG BUILD_VERSION=development
+ARG BUILD_COMMIT=unknown
+ARG BUILD_DATE=unknown
+
 # Define o diretório de trabalho dentro do container
 WORKDIR /app
 
 # Impede a criação de arquivos .pyc e garante que o output do Python vá direto para o terminal
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV BUILD_VERSION=${BUILD_VERSION}
+ENV BUILD_COMMIT=${BUILD_COMMIT}
+ENV BUILD_DATE=${BUILD_DATE}
 
 # Instala as dependências do sistema necessárias para compilar pacotes como psycopg2
 RUN apt-get update \

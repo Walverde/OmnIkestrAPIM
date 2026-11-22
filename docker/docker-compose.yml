@@ -34,6 +34,8 @@ services:
       - PUID=${PUID:-1000}
       - PGID=${PGID:-1000}
       - PICKER_TOKEN=${PICKER_TOKEN:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
     volumes:
       - ../services/backend:/app
       - type: bind

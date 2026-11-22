@@ -36,8 +36,8 @@ PICKER_TOKEN = os.getenv("PICKER_TOKEN", "")
 MAX_PRODUCT_EVENTS = 10000
 PRODUCT_EVENT_RETENTION_DAYS = 90
 DASHBOARD_PAGE = Path(__file__).parent.parent / "static" / "dashboard.html"
-SETTINGS_PAGE = Path(__file__).parent.parent / "static" / "settings.html"
 SETUP_PAGE = Path(__file__).parent.parent / "static" / "onboarding.html"
+SETTINGS_PAGE = SETUP_PAGE
 
 
 def apply_product_roots(roots: Sequence[str | Path]) -> tuple[Path, ...]:

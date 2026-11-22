@@ -12,18 +12,20 @@ from sqlalchemy.orm import Session
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
-from main import (
-    Base,
+from app import app
+from backend_core.database import Base
+from backend_core.api.dependencies import get_db
+from backend_core.models import (
     ProductEvent,
     ProductEventRecord,
     ProductRecord,
+)
+from backend_core.catalog import (
     _scan_products,
     _sync_product_catalog,
     _sync_product_for_event,
     _product_directory_for_path,
     _write_manifest_atomic,
-    app,
-    get_db,
 )
 
 
@@ -150,7 +152,7 @@ def test_scan_products_seeds_stable_v1_manifest(tmp_path):
     product_dir.mkdir()
     (product_dir / "cover.jpg").write_bytes(b"image")
 
-    with patch("main._write_manifest_atomic", wraps=_write_manifest_atomic) as write_manifest:
+    with patch("backend_core.catalog._write_manifest_atomic", wraps=_write_manifest_atomic) as write_manifest:
         first_scan = _scan_products(tmp_path)[0]
         second_scan = _scan_products(tmp_path)[0]
 
@@ -326,20 +328,44 @@ def test_dashboard_routes_return_html():
     home = client.get("/home")
     catalog = client.get("/products")
     product_detail = client.get("/products/0197f381-7c63-7a1d-a8b1-4e08b8472401")
+    settings = client.get("/settings")
 
     assert root.status_code == 200
     assert dashboard.status_code == 200
     assert home.status_code == 200
     assert catalog.status_code == 200
     assert product_detail.status_code == 200
+    assert settings.status_code == 200
     assert "OmnIkestrAPIM" in root.text
     assert "Painel geral" in dashboard.text
     assert "Produtos" in catalog.text
     assert "Dados do produto" in product_detail.text
+    assert "Primeiros passos" in settings.text
+    assert "Pasta no Windows" not in settings.text
+
+
+def test_legacy_main_entrypoint_resolves_modular_app():
+    import main
+    import app as modular_app
+
+    assert main.app is modular_app.app
+
+
+def test_metrics_and_static_footer_are_served():
+    client = TestClient(app)
+
+    client.get("/api/health")
+    metrics = client.get("/metrics")
+    footer = client.get("/static/site-footer.js")
+
+    assert metrics.status_code == 200
+    assert "omnikestr_http_requests_total" in metrics.text
+    assert footer.status_code == 200
+    assert "app-catalog-info" in footer.text
 
 
 def test_local_picker_token_is_not_cacheable(monkeypatch):
-    monkeypatch.setattr("main.PICKER_TOKEN", "test-local-picker-token")
+    monkeypatch.setattr("backend_core.runtime.PICKER_TOKEN", "test-local-picker-token")
     response = TestClient(app).get("/api/local/picker-token")
 
     assert response.status_code == 200
@@ -375,7 +401,8 @@ def product_api(tmp_path, monkeypatch):
 
     app.dependency_overrides.clear()
     app.dependency_overrides[get_db] = override_get_db
-    monkeypatch.setattr("main.PRODUCTS_ROOT", product_root)
+    monkeypatch.setattr("backend_core.runtime.PRODUCTS_ROOT", product_root)
+    monkeypatch.setattr("backend_core.runtime.PRODUCT_ROOTS", (product_root,))
     with Session(database) as session:
         _sync_product_catalog(session, product_root)
 
@@ -388,7 +415,7 @@ def product_api(tmp_path, monkeypatch):
 
 def test_product_patch_preserves_unknown_yaml_and_prevents_write_loop(product_api):
     client, database, product_root, product_dir, product_id = product_api
-    with patch("main._write_manifest_atomic", wraps=_write_manifest_atomic) as atomic_write:
+    with patch("backend_core.api.products._write_manifest_atomic", wraps=_write_manifest_atomic) as atomic_write:
         response = client.patch(
             f"/api/products/{product_id}",
             json={"title": "Updated title", "status": "published", "sku": "TEST-1"},

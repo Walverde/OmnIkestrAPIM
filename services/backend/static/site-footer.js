@@ -4,10 +4,19 @@
     const style = document.createElement("style");
     style.id = styleId;
     style.textContent = `
+      body {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      body > main {
+        flex: 1 0 auto;
+      }
       .app-footer {
         width: 100%;
-        margin-top: 28px;
-        padding: 12px max(20px, 5vw);
+        margin-top: auto;
+        min-height: 40px;
+        padding: 8px max(20px, 5vw);
         border-top: 1px solid #d8e0da;
         background: rgba(255, 255, 255, 0.92);
         color: #63766d;

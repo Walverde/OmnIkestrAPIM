@@ -1,5 +1,6 @@
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -9,7 +10,7 @@ from backend_core.api.events import router as events_router
 from backend_core.api.local import router as local_router
 from backend_core.api.marketplaces import router as marketplaces_router
 from backend_core.api.media import router as media_router
-from backend_core.api.observability import router as observability_router
+from backend_core.api.observability import HTTPMetricsMiddleware, router as observability_router
 from backend_core.api.products import router as products_router
 from backend_core.api.system import router as system_router
 from backend_core.catalog import _sync_product_catalog_for_roots
@@ -40,8 +41,12 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         stop_event.set()
-        catalog_task.cancel()
-        await worker_task
+        if not catalog_task.done():
+            catalog_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await catalog_task
+        with suppress(asyncio.CancelledError):
+            await worker_task
 
 
 app = FastAPI(
@@ -59,4 +64,6 @@ app.include_router(media_router)
 app.include_router(local_router)
 app.include_router(marketplaces_router)
 app.include_router(observability_router)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.add_middleware(HTTPMetricsMiddleware)
+STATIC_DIRECTORY = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIRECTORY), name="static")

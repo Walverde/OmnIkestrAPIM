@@ -155,7 +155,7 @@ PICKER_TOKEN = os.getenv("PICKER_TOKEN", "")
 THUMBNAIL_CACHE_ROOT = Path(os.getenv("THUMBNAIL_CACHE_ROOT", "/tmp/omnikestr-thumbnails"))
 THUMBNAIL_SIZE = 1280
 DASHBOARD_PAGE = Path(__file__).parent / "static" / "dashboard.html"
-SETTINGS_PAGE = Path(__file__).parent / "static" / "settings.html"
+SETTINGS_PAGE = Path(__file__).parent / "static" / "onboarding.html"
 
 
 def _run_migrations() -> None:
@@ -1133,3 +1133,10 @@ def get_product_media(
         media_type="image/webp",
         headers={"Cache-Control": "no-cache"},
     )
+
+
+# Compatibility entrypoint: deployments and older tests resolve the modular app.
+# New code should import app from app.py via the `app:app` process target.
+from app import app as _modular_app
+
+app = _modular_app

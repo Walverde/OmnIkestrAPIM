@@ -199,7 +199,12 @@
       addField('price','Preço',product.price,'number');
       addField('cost','Custo',product.cost,'number');
       addField('condition','Condição',product.condition,null,[['','Não definida'],['new','Novo'],['used','Usado'],['refurbished','Recondicionado']]);
-      addField('marketplaces','Marketplaces',(product.marketplaces || []).join(', '));
+      const marketplaceNames = Array.isArray(product.marketplaces)
+        ? product.marketplaces
+        : Object.entries(product.marketplaces || {})
+          .filter(([, config]) => config && config.enabled !== false)
+          .map(([name]) => name);
+      addField('marketplaces','Marketplaces',marketplaceNames.join(', '));
       addField('description','Descrição',product.description,'textarea',null,true);
       form.append(grid);
       const actions = element('div','form-actions');
@@ -231,7 +236,13 @@
           price: form.elements.price.value ? Number(form.elements.price.value) : null,
           cost: form.elements.cost.value ? Number(form.elements.cost.value) : null,
           condition: form.elements.condition.value || null,
-          marketplaces: form.elements.marketplaces.value.split(',').map(value => value.trim()).filter(Boolean),
+          marketplaces: Object.fromEntries(
+            form.elements.marketplaces.value
+              .split(',')
+              .map(value => value.trim())
+              .filter(Boolean)
+              .map(name => [name, { enabled: true }])
+          ),
           description: form.elements.description.value || null,
         };
         try {

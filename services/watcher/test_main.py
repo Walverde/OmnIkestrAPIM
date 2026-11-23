@@ -101,6 +101,24 @@ class DebouncedProductNotifierTests(unittest.TestCase):
         self.assertFalse(self.notifier._is_product_directory(group))
         self.assertTrue(self.notifier._is_product_directory(nested_product))
 
+    def test_reserved_and_auxiliary_paths_are_not_forwarded(self):
+        handler = ProductFolderHandler(self.notifier)
+
+        handler.on_created(
+            SimpleNamespace(
+                src_path=str(self.watch_directory / "_arquivos" / "draft.psd"),
+                is_directory=False,
+            )
+        )
+        handler.on_created(
+            SimpleNamespace(
+                src_path=str(self.watch_directory / "Chair" / "Thumbs.db"),
+                is_directory=False,
+            )
+        )
+
+        self.assertEqual(len(self.notifier._pending), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

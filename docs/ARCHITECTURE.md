@@ -954,7 +954,7 @@ The initial Compose deployment currently runs three services:
 * **Watcher:** monitors the selected product directory and forwards create, delete, and move events to the backend.
 * **PostgreSQL:** stores the product index and event history in the persistent `postgres_data` volume.
 
-The host product directory is mounted at `/data/products` in both application containers. The backend mount is read-only; the watcher mount is writable. On Windows, `PRODUCTS_DIR` in the root `.env` file selects the host directory. The native folder picker at `/settings` uses `tools/windows_folder_picker.ps1` because a browser inside a container cannot enumerate arbitrary Windows paths. The helper listens on loopback, accepts requests only from the local application origins, and recreates the backend and watcher after a directory change.
+The host product directory is mounted at `/data/products` in both application containers. Product writes remain the responsibility of the backend; the watcher is also mounted to the same volume to observe and reconcile changes. On Windows, `PRODUCTS_DIR` in the root `.env` file selects the host directory. The native folder picker at `/settings` uses `tools/windows_folder_picker.ps1` because a browser inside a container cannot enumerate arbitrary Windows paths. The helper listens on loopback, accepts requests only from the local application origins, and recreates the backend and watcher after a directory change.
 
 The current API includes:
 
@@ -987,7 +987,7 @@ These should remain optional for small installations.
 
 ---
 
-# 19. Development Philosophy
+# 20. Development Philosophy
 
 OmnIkestrAPIM should follow these principles.
 

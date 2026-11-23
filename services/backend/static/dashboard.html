@@ -635,14 +635,18 @@
         const products = productsResponse.products || [];
         const events = eventsResponse.events || [];
         const totalFiles = products.reduce((sum, product) => sum + (product.files?.length || 0), 0);
-        const manifestCount = products.filter((product) => product.has_manifest).length;
+        const manifestCount = products.filter(
+          (product) => product.has_manifest && !product.manifest_error
+        ).length;
 
-        productCountEl.textContent = String(products.length);
+        productCountEl.textContent = String(productsResponse.total ?? products.length);
         fileCountEl.textContent = String(totalFiles);
         eventCountEl.textContent = String(events.length);
         healthStatusEl.textContent = health.status === 'healthy' ? 'OK' : 'ALERTA';
-        healthDetailEl.textContent = `${products.length > 0 ? '2/2' : '1/2'} ativos`;
-        manifestCountEl.textContent = String(manifestCount);
+        healthDetailEl.textContent = health.status === 'healthy' ? 'Backend ativo' : 'Backend indisponível';
+        manifestCountEl.textContent = String(
+          products.filter((product) => product.has_manifest && !product.manifest_error).length
+        );
         rootPathEl.textContent = productsResponse.root || 'Não definido';
         lastSyncEl.textContent = events.length ? formatRelativeTime(events[events.length - 1].created_at) : 'Sem eventos';
 
@@ -654,8 +658,8 @@
           },
           {
             title: 'Catálogo atualizado',
-            level: 'ok',
-            message: `${products.length} produtos indexados e ${totalFiles} arquivos catalogados.`
+            level: manifestCount < (productsResponse.total ?? products.length) ? 'warning' : 'ok',
+            message: `${productsResponse.total ?? products.length} produtos indexados e ${totalFiles} arquivos catalogados nesta página.`
           },
           ...(manifestCount > 0 ? [{
             title: 'Manifests encontrados',

@@ -6,7 +6,7 @@ AI-powered autonomous PIM &amp; e-commerce orchestrator (NAS Watcher, AI Vision,
 For local development, start the development stack from the repository root:
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d --build
+docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 ```
 
 On Linux, the one-time bootstrap can create `data/products`, generate a

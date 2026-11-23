@@ -197,6 +197,7 @@
       }
       addField('status','Estado',product.status || 'pending',null,[['pending','Pendente'],['published','Publicado'],['sold','Vendido'],['archived','Arquivado']]);
       addField('price','Preço',product.price,'number');
+      addField('price_floor','Piso de preço',product.price_floor,'number');
       addField('cost','Custo',product.cost,'number');
       addField('condition','Condição',product.condition,null,[['','Não definida'],['new','Novo'],['used','Usado'],['refurbished','Recondicionado']]);
       const marketplaceNames = Array.isArray(product.marketplaces)
@@ -210,7 +211,29 @@
       const actions = element('div','form-actions');
       const discard = element('button','button secondary','Descartar'); discard.type='button';
       const save = element('button','button primary','Salvar alterações'); save.type='submit';
-      actions.append(discard,save); form.append(actions);
+      const publish = element('button','button secondary','Publicar no Mercado Livre');
+      publish.type='button';
+      publish.addEventListener('click', async () => {
+        const actionToken = window.prompt('Token de confirmação manual do Mercado Livre');
+        if (!actionToken) return;
+        publish.disabled = true;
+        saveState.textContent='Enviando publicação para a fila...';
+        try {
+          const response = await fetch(`/api/marketplaces/mercadolivre/products/${encodeURIComponent(productId)}/publish`, {
+            method: 'POST',
+            headers: {'X-Marketplace-Action-Token': actionToken}
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.detail || 'Não foi possível publicar.');
+          saveState.textContent=`Publicação enfileirada (job ${result.job_id}).`;
+        } catch (error) {
+          saveState.textContent=error.message || 'Falha ao publicar.';
+          saveState.classList.add('error');
+        } finally {
+          publish.disabled=false;
+        }
+      });
+      actions.append(discard,save,publish); form.append(actions);
       const saveState = element('p','save-state'); saveState.id='save-state';
       editor.append(summary,form,saveState);
       layout.append(gallery,editor); main.append(layout);
@@ -234,6 +257,7 @@
           category: form.elements.category.value || null,
           status: form.elements.status.value,
           price: form.elements.price.value ? Number(form.elements.price.value) : null,
+          price_floor: form.elements.price_floor.value ? Number(form.elements.price_floor.value) : null,
           cost: form.elements.cost.value ? Number(form.elements.cost.value) : null,
           condition: form.elements.condition.value || null,
           marketplaces: Object.fromEntries(
@@ -241,7 +265,17 @@
               .split(',')
               .map(value => value.trim())
               .filter(Boolean)
-              .map(name => [name, { enabled: true }])
+              .map(name => {
+                const providerName = name.normalize('NFD')
+                  .replace(/[\u0300-\u036f]/g, '')
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, '');
+                const provider = providerName === 'mercadolivre' ? 'mercadolivre' : name;
+                const existing = product.marketplaces && typeof product.marketplaces === 'object'
+                  ? product.marketplaces[provider] || {}
+                  : {};
+                return [provider, { ...existing, enabled: true }];
+              })
           ),
           description: form.elements.description.value || null,
         };

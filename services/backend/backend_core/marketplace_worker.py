@@ -25,44 +25,54 @@ POLL_SECONDS = 2
 
 def _recover_interrupted_jobs() -> None:
     stale_before = datetime.now(timezone.utc) - timedelta(minutes=10)
-    with Session(database.engine) as db:
-        jobs = db.scalars(
-            select(MarketplaceJobRecord).where(
-                MarketplaceJobRecord.status == "in_progress",
-                MarketplaceJobRecord.updated_at < stale_before,
+    try:
+        with Session(database.engine) as db:
+            jobs = db.scalars(
+                select(MarketplaceJobRecord).where(
+                    MarketplaceJobRecord.status == "in_progress",
+                    MarketplaceJobRecord.updated_at < stale_before,
+                )
+            ).all()
+            if not jobs:
+                return
+            for job in jobs:
+                job.status = "pending"
+                job.available_at = datetime.now(timezone.utc)
+            db.commit()
+            logger.warning(
+                "Recovered interrupted marketplace jobs",
+                extra={"event": "marketplace.jobs.recovered", "attempt": len(jobs)},
             )
-        ).all()
-        if not jobs:
-            return
-        for job in jobs:
-            job.status = "pending"
-            job.available_at = datetime.now(timezone.utc)
-        db.commit()
-        logger.warning(
-            "Recovered interrupted marketplace jobs",
-            extra={"event": "marketplace.jobs.recovered", "attempt": len(jobs)},
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to recover interrupted marketplace jobs",
+            extra={"event": "marketplace.jobs.recovery_failed"},
         )
 
 
 def _claim_job() -> tuple[int, str, str, dict] | None:
     now = datetime.now(timezone.utc)
-    with Session(database.engine) as db:
-        job = db.scalar(
-            select(MarketplaceJobRecord)
-            .where(
-                MarketplaceJobRecord.status == "pending",
-                MarketplaceJobRecord.available_at <= now,
+    try:
+        with Session(database.engine) as db:
+            job = db.scalar(
+                select(MarketplaceJobRecord)
+                .where(
+                    MarketplaceJobRecord.status == "pending",
+                    MarketplaceJobRecord.available_at <= now,
+                )
+                .order_by(MarketplaceJobRecord.created_at, MarketplaceJobRecord.id)
+                .with_for_update(skip_locked=True)
+                .limit(1)
             )
-            .order_by(MarketplaceJobRecord.created_at, MarketplaceJobRecord.id)
-            .with_for_update(skip_locked=True)
-            .limit(1)
-        )
-        if job is None:
-            return None
-        job.status = "in_progress"
-        job.attempts += 1
-        db.commit()
-        return job.id, job.workspace_id, job.provider, job.payload
+            if job is None:
+                return None
+            job.status = "in_progress"
+            job.attempts += 1
+            db.commit()
+            return job.id, job.workspace_id, job.provider, job.payload
+    except SQLAlchemyError:
+        logger.exception("Failed to claim marketplace job", extra={"event": "marketplace.job.claim_failed"})
+        return None
 
 
 async def _run_job(job_id: int, workspace_id: str, provider: str, payload: dict) -> None:
@@ -105,7 +115,15 @@ async def _run_job(job_id: int, workspace_id: str, provider: str, payload: dict)
         _finish_job(
             job_id, workspace_id, provider, payload, error, retry=error.retryable
         )
-    except (httpx.HTTPError, OSError, SQLAlchemyError, ValueError, yaml.YAMLError) as error:
+    except (
+        httpx.HTTPError,
+        OSError,
+        SQLAlchemyError,
+        ValueError,
+        KeyError,
+        RuntimeError,
+        yaml.YAMLError,
+    ) as error:
         _finish_job(job_id, workspace_id, provider, payload, error, retry=True)
 
 

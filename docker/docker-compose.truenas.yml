@@ -47,6 +47,7 @@ services:
       POSTGRES_USER: omnikestr
       PRODUCTS_ROOT: /data/products
       PRODUCT_ROOTS: /data/products
+      OMNIKESTRAPIM_API_KEY: "${OMNIKESTRAPIM_API_KEY:-}"
       PUID: "568"
       PGID: "568"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-}"
@@ -95,6 +96,7 @@ services:
       WATCH_DIRS: /data/products
       PRODUCT_ROOTS: /data/products
       BACKEND_URL: http://backend:8000
+      OMNIKESTRAPIM_API_KEY: "${OMNIKESTRAPIM_API_KEY:-}"
       PUID: "568"
       PGID: "568"
     volumes:

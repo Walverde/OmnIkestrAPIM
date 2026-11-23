@@ -15,7 +15,7 @@ from ..models import (
     ProductRecord,
     ProductRootConfig,
 )
-from .dependencies import get_db
+from .dependencies import get_db, require_api_key
 
 
 router = APIRouter()
@@ -38,8 +38,17 @@ def restore_saved_product_roots(db: Session) -> None:
         configured_roots = json.loads(saved_roots.value)
         if not isinstance(configured_roots, list) or not configured_roots:
             raise ValueError("A lista de pastas está vazia ou inválida.")
-        roots = tuple(_validated_root(root) for root in configured_roots)
-    except (HTTPException, json.JSONDecodeError, TypeError, ValueError) as error:
+        roots = tuple(
+            dict.fromkeys(
+                Path(str(root)).expanduser().resolve()
+                for root in configured_roots
+                if isinstance(root, str)
+                and Path(str(root)).expanduser().resolve().is_dir()
+            )
+        )
+        if not roots:
+            raise ValueError("Nenhuma raiz salva está montada.")
+    except (json.JSONDecodeError, TypeError, ValueError) as error:
         raise RuntimeError(
             "Não foi possível restaurar as pastas de produtos salvas. "
             "Verifique se o volume está montado e acessível."
@@ -75,7 +84,11 @@ def get_product_roots(db: Session = Depends(get_db)):
 
 
 @router.post("/api/config/product-roots")
-def set_product_roots(config: ProductRootConfig, db: Session = Depends(get_db)):
+def set_product_roots(
+    config: ProductRootConfig,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_api_key),
+):
     if not config.roots or any(not root.strip() for root in config.roots):
         raise HTTPException(
             status_code=400, detail="Informe pastas de produtos válidas."
@@ -167,7 +180,10 @@ def browse_product_directories(path: str | None = Query(default=None)):
 
 
 @router.post("/api/setup/folders", status_code=201)
-def create_product_directory(request: CreateProductFolderRequest):
+def create_product_directory(
+    request: CreateProductFolderRequest,
+    _: None = Depends(require_api_key),
+):
     name = request.name.strip()
     if (
         not name

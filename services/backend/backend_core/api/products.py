@@ -23,7 +23,7 @@ from ..models import (
     ProductManifestPatch,
     ProductRecord,
 )
-from .dependencies import get_db
+from .dependencies import get_db, require_api_key
 
 
 router = APIRouter()
@@ -136,6 +136,7 @@ def list_products(
 def scan_products(
     workspace_id: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=64),
     db: Session = Depends(get_db),
+    _: None = Depends(require_api_key),
 ):
     products = _sync_product_catalog_for_roots(
         db, runtime.PRODUCT_ROOTS, workspace_id
@@ -169,6 +170,7 @@ def patch_product_detail(
     changes: ProductManifestPatch,
     workspace_id: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=64),
     db: Session = Depends(get_db),
+    _: None = Depends(require_api_key),
 ):
     product = db.scalar(
         select(ProductRecord).where(
@@ -190,10 +192,27 @@ def patch_product_detail(
             status_code=409, detail="O manifesto precisa conter um objeto YAML."
         )
 
-    updated_manifest = {
-        **manifest_data,
-        **changes.model_dump(exclude_unset=True, mode="json"),
-    }
+    change_data = changes.model_dump(exclude_unset=True, mode="json")
+    if "marketplaces" in change_data:
+        existing_marketplaces = manifest_data.get("marketplaces", {})
+        if not isinstance(existing_marketplaces, dict):
+            existing_marketplaces = {}
+        submitted_marketplaces = change_data["marketplaces"]
+        merged_marketplaces = {
+            str(name): dict(config)
+            if isinstance(config, dict)
+            else {"enabled": bool(config)}
+            for name, config in existing_marketplaces.items()
+        }
+        for name, config in submitted_marketplaces.items():
+            if isinstance(config, dict):
+                merged_marketplaces[str(name)] = {
+                    **merged_marketplaces.get(str(name), {}),
+                    **config,
+                }
+        change_data["marketplaces"] = merged_marketplaces
+
+    updated_manifest = {**manifest_data, **change_data}
     try:
         validated_manifest = ProductManifest.model_validate(updated_manifest)
     except ValidationError as error:

@@ -2,6 +2,7 @@ import hashlib
 import io
 import os
 import tempfile
+import time
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -16,6 +17,9 @@ THUMBNAIL_CACHE_ROOT = Path(
     os.getenv("THUMBNAIL_CACHE_ROOT", "/tmp/omnikestr-thumbnails")
 )
 THUMBNAIL_SIZE = 1280
+MAX_CACHE_FILES = 5000
+MAX_CACHE_AGE_SECONDS = 7 * 24 * 60 * 60
+MAX_IMAGE_PIXELS = 80_000_000
 
 
 def thumbnail_cache_path(product: ProductRecord, source_path: Path) -> Path:
@@ -27,7 +31,30 @@ def thumbnail_cache_path(product: ProductRecord, source_path: Path) -> Path:
 
 
 def create_webp_thumbnail(source_path: Path, cache_path: Path) -> None:
+    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
     cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cutoff = time.time() - MAX_CACHE_AGE_SECONDS
+    cache_files = sorted(
+        (path for path in cache_path.parent.glob("*.webp") if path.is_file()),
+        key=lambda path: path.stat().st_mtime,
+    )
+    for old_path in cache_files:
+        if old_path.stat().st_mtime <= cutoff:
+            try:
+                old_path.unlink()
+            except OSError:
+                pass
+    remaining = [
+        path for path in cache_path.parent.glob("*.webp") if path.is_file()
+    ]
+    if len(remaining) >= MAX_CACHE_FILES:
+        for overflow_path in sorted(
+            remaining, key=lambda path: path.stat().st_mtime
+        )[: len(remaining) - MAX_CACHE_FILES + 1]:
+            try:
+                overflow_path.unlink()
+            except OSError:
+                pass
     with Image.open(source_path) as source_image:
         image = ImageOps.exif_transpose(source_image)
         preserve_alpha = "A" in image.getbands() or "transparency" in image.info

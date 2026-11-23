@@ -350,6 +350,10 @@ async def _access_token(db: Session, workspace_id: str) -> str:
 async def publish_product(
     db: Session, product: ProductRecord, workspace_id: str
 ) -> dict[str, str]:
+    if product.status in {"sold", "archived"}:
+        raise MarketplaceConfigurationError(
+            "Produtos vendidos ou arquivados não podem ser publicados."
+        )
     config = (product.marketplaces or {}).get(PROVIDER, {})
     if not isinstance(config, dict) or not config.get("enabled"):
         raise MarketplaceConfigurationError(

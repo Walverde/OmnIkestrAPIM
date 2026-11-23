@@ -58,8 +58,8 @@ app = FastAPI(
 
 app.include_router(system_router)
 app.include_router(config_router)
-app.include_router(products_router)
 app.include_router(events_router)
+app.include_router(products_router)
 app.include_router(media_router)
 app.include_router(local_router)
 app.include_router(marketplaces_router)

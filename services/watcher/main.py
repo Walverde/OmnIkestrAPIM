@@ -2,6 +2,7 @@ import logging
 import os
 import threading
 import time
+import fnmatch
 from pathlib import Path
 from typing import Any, Callable
 
@@ -15,11 +16,22 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-WATCH_DIRECTORY = os.getenv("WATCH_DIR", "/data/products")
+def _split_watch_dirs() -> list[str]:
+    raw_value = os.getenv("WATCH_DIRS") or os.getenv("WATCH_DIR") or "/data/products"
+    directories = [
+        value.strip()
+        for value in raw_value.replace(";", ",").split(",")
+        if value.strip()
+    ]
+    return list(dict.fromkeys(directories or ["/data/products"]))
+
+
+WATCH_DIRECTORIES = _split_watch_dirs()
+WATCH_DIRECTORY = WATCH_DIRECTORIES[0]
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 DEBOUNCE_SECONDS = float(os.getenv("WATCH_DEBOUNCE_SECONDS", "1.5"))
 RECONCILE_INTERVAL_SECONDS = int(os.getenv("WATCH_RECONCILE_INTERVAL_SECONDS", "900"))
-POLL_INTERVAL_SECONDS = float(os.getenv("WATCH_POLL_INTERVAL_SECONDS", "1.0"))
+POLL_INTERVAL_SECONDS = float(os.getenv("WATCH_POLL_INTERVAL_SECONDS", "10.0"))
 RESERVED_PRODUCT_DIRECTORY_NAMES = {"images", "videos", "documents"}
 DIRECT_MEDIA_EXTENSIONS = {
     "apng", "avi", "bmp", "gif", "heic", "heif", "jpeg", "jpg", "m4a",
@@ -27,6 +39,13 @@ DIRECT_MEDIA_EXTENSIONS = {
     "tiff", "wav", "webm", "webp",
 }
 LEGACY_GROUP_MANIFEST_KEYS = {"schema_version", "id", "title"}
+IGNORE_PATTERNS = [
+    "*.psd",
+    "~$*",
+    "*.tmp",
+    "Thumbs.db",
+    ".DS_Store",
+]
 
 
 class DebouncedProductNotifier:
@@ -43,6 +62,20 @@ class DebouncedProductNotifier:
         self.post = post or requests.post
         self._lock = threading.Lock()
         self._pending: dict[str, tuple[dict[str, Any], threading.Timer]] = {}
+
+    def _is_ignored_path(self, path: str) -> bool:
+        candidate = Path(path)
+        if any(part.startswith("_") for part in candidate.parts):
+            return True
+        patterns = IGNORE_PATTERNS
+        extra_patterns = os.getenv("WATCH_IGNORE_PATTERNS", "")
+        if extra_patterns:
+            patterns = patterns + [
+                pattern.strip()
+                for pattern in extra_patterns.replace(";", ",").split(",")
+                if pattern.strip()
+            ]
+        return any(fnmatch.fnmatch(candidate.name, pattern) for pattern in patterns)
 
     def _is_product_directory(self, path: Path) -> bool:
         if not path.is_dir():
@@ -112,6 +145,8 @@ class DebouncedProductNotifier:
         is_directory: bool,
         destination_path: str | None = None,
     ) -> None:
+        if self._is_ignored_path(destination_path or path):
+            return
         payload = {
             "event": event_type,
             "path": path,
@@ -133,9 +168,12 @@ class DebouncedProductNotifier:
 
     def _send(self, payload: dict[str, Any]) -> None:
         try:
+            api_key = os.getenv("OMNIKESTRAPIM_API_KEY", "").strip()
+            headers = {"X-API-Key": api_key} if api_key else {}
             response = self.post(
                 f"{self.backend_url}/api/products/watch",
                 json=payload,
+                headers=headers,
                 timeout=10,
             )
             response.raise_for_status()
@@ -189,7 +227,13 @@ class ProductFolderHandler(FileSystemEventHandler):
 
 def reconcile_catalog(backend_url: str = BACKEND_URL) -> None:
     try:
-        response = requests.post(f"{backend_url}/api/products/scan", timeout=120)
+        api_key = os.getenv("OMNIKESTRAPIM_API_KEY", "").strip()
+        headers = {"X-API-Key": api_key} if api_key else {}
+        response = requests.post(
+            f"{backend_url}/api/products/scan",
+            headers=headers,
+            timeout=120,
+        )
         response.raise_for_status()
         logging.info("Periodic full catalog reconciliation completed")
     except requests.RequestException:
@@ -197,14 +241,15 @@ def reconcile_catalog(backend_url: str = BACKEND_URL) -> None:
 
 
 if __name__ == "__main__":
-    logging.info("🔍 Iniciando File Watcher no diretório: %s", WATCH_DIRECTORY)
-    if not os.path.exists(WATCH_DIRECTORY):
-        os.makedirs(WATCH_DIRECTORY, exist_ok=True)
-
-    notifier = DebouncedProductNotifier(WATCH_DIRECTORY, BACKEND_URL)
-    event_handler = ProductFolderHandler(notifier)
+    logging.info("🔍 Iniciando File Watcher nos diretórios: %s", WATCH_DIRECTORIES)
+    notifiers = []
     observer = PollingObserver(timeout=POLL_INTERVAL_SECONDS)
-    observer.schedule(event_handler, path=WATCH_DIRECTORY, recursive=True)
+    for watch_directory in WATCH_DIRECTORIES:
+        os.makedirs(watch_directory, exist_ok=True)
+        notifier = DebouncedProductNotifier(watch_directory, BACKEND_URL)
+        notifiers.append(notifier)
+        event_handler = ProductFolderHandler(notifier)
+        observer.schedule(event_handler, path=watch_directory, recursive=True)
     observer.start()
     next_reconciliation = time.monotonic() + RECONCILE_INTERVAL_SECONDS
 
@@ -216,7 +261,8 @@ if __name__ == "__main__":
                 next_reconciliation = time.monotonic() + RECONCILE_INTERVAL_SECONDS
     except KeyboardInterrupt:
         observer.stop()
-        notifier.flush_all()
+        for notifier in notifiers:
+            notifier.flush_all()
         logging.info("File watcher stopped")
 
     observer.join()

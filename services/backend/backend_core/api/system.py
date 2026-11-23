@@ -24,7 +24,7 @@ def health_check(response: Response, db: Session = Depends(get_db)):
     return {
         "status": "healthy",
         "service": "OmnIkestrAPIM Core Backend",
-        "version": os.getenv("BUILD_VERSION") or "0.2.0",
+        "version": os.getenv("BUILD_VERSION") or "development",
         "commit": os.getenv("BUILD_COMMIT", "unknown"),
         "built_at": os.getenv("BUILD_DATE", "unknown"),
         "catalog_updated_at": catalog_updated_at.isoformat() if catalog_updated_at else None,

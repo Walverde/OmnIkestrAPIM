@@ -21,11 +21,12 @@ def get_product_media(
     product_id: UUID,
     relative_path: str,
     thumbnail: bool = Query(True),
+    workspace_id: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=64),
     db: Session = Depends(get_db),
 ):
     product = db.scalar(
         select(ProductRecord).where(
-            ProductRecord.workspace_id == DEFAULT_WORKSPACE_ID,
+            ProductRecord.workspace_id == workspace_id,
             ProductRecord.product_uuid == str(product_id),
         )
     )

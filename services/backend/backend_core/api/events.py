@@ -16,7 +16,7 @@ from ..models import (
     ProductEvent,
     ProductEventRecord,
 )
-from .dependencies import get_db
+from .dependencies import get_db, require_api_key
 
 
 router = APIRouter()
@@ -42,6 +42,31 @@ def _prune_product_events(db: Session, workspace_id: str) -> None:
     db.execute(
         delete(ProductEventRecord).where(
             ProductEventRecord.id.in_(select(overflow_ids.c.id))
+        )
+    )
+    db.commit()
+
+
+def _prune_domain_events(db: Session, workspace_id: str) -> None:
+    retention_cutoff = datetime.now(timezone.utc) - timedelta(
+        days=runtime.PRODUCT_EVENT_RETENTION_DAYS
+    )
+    db.execute(
+        delete(DomainEventRecord).where(
+            DomainEventRecord.workspace_id == workspace_id,
+            DomainEventRecord.created_at < retention_cutoff,
+        )
+    )
+    overflow_ids = (
+        select(DomainEventRecord.id)
+        .where(DomainEventRecord.workspace_id == workspace_id)
+        .order_by(DomainEventRecord.created_at.desc(), DomainEventRecord.id.desc())
+        .offset(runtime.MAX_PRODUCT_EVENTS)
+        .subquery()
+    )
+    db.execute(
+        delete(DomainEventRecord).where(
+            DomainEventRecord.id.in_(select(overflow_ids.c.id))
         )
     )
     db.commit()
@@ -80,7 +105,11 @@ def get_product_events(
 
 
 @router.post("/api/products/watch")
-def receive_product_event(event: ProductEvent, db: Session = Depends(get_db)):
+def receive_product_event(
+    event: ProductEvent,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_api_key),
+):
     _ensure_workspace(db, event.workspace_id)
     record = ProductEventRecord(**event.model_dump())
     db.add(record)
@@ -107,6 +136,7 @@ def receive_product_event(event: ProductEvent, db: Session = Depends(get_db)):
     )
     db.commit()
     _prune_product_events(db, event.workspace_id)
+    _prune_domain_events(db, event.workspace_id)
     return {
         "status": "accepted",
         "event": event.model_dump(),

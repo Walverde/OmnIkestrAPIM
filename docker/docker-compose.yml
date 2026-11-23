@@ -27,6 +27,7 @@ services:
         BUILD_DATE: ${BUILD_DATE:-unknown}
     container_name: omnikestr_backend
     restart: always
+    user: "${PUID:-1000}:${PGID:-1000}"
     ports:
       - "8000:8000"
     environment:
@@ -34,6 +35,7 @@ services:
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-omnikestr}:${POSTGRES_PASSWORD:-omnikestr_dev}@db:5432/${POSTGRES_DB:-omnikestr}
       - PRODUCTS_ROOT=/data/products
       - PICKER_TOKEN=${PICKER_TOKEN:-}
+      - OMNIKESTRAPIM_API_KEY=${OMNIKESTRAPIM_API_KEY:-}
       - BUILD_VERSION=${BUILD_VERSION:-0.2.0}
       - BUILD_COMMIT=${BUILD_COMMIT:-unknown}
       - BUILD_DATE=${BUILD_DATE:-unknown}
@@ -54,9 +56,11 @@ services:
       dockerfile: Dockerfile
     container_name: omnikestr_watcher
     restart: always
+    user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       - PYTHONUNBUFFERED=1
-      - WATCH_DIR=/data/products
+      - WATCH_DIRS=/data/products
+      - OMNIKESTRAPIM_API_KEY=${OMNIKESTRAPIM_API_KEY:-}
       # Caso o watcher precise se comunicar diretamente com o backend:
       - BACKEND_URL=http://backend:8000
     volumes:

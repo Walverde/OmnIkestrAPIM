@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
 from app import app
-from backend_core.database import Base
+from backend_core.database import Base, engine
 from backend_core.api.dependencies import get_db
 from backend_core.models import (
     ProductEvent,
@@ -23,10 +23,25 @@ from backend_core.models import (
 from backend_core.catalog import (
     _scan_products,
     _sync_product_catalog,
+    _sync_product_catalog_for_roots,
     _sync_product_for_event,
     _product_directory_for_path,
     _write_manifest_atomic,
 )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    for database_path in (Path("test.db"), Path("services/backend/test.db")):
+        try:
+            database_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+@pytest.fixture(autouse=True)
+def create_test_database():
+    Base.metadata.create_all(engine)
+    yield
 
 
 def test_scan_products_detects_manifest_and_files(tmp_path):
@@ -344,6 +359,22 @@ def test_dashboard_routes_return_html():
     assert "Pasta no Windows" not in settings.text
 
 
+def test_product_ui_includes_price_floor_and_publish_action():
+    response = TestClient(app).get("/products/0197f381-7c63-7a1d-a8b1-4e08b8472401")
+
+    assert response.status_code == 200
+    assert "Piso de preço" in response.text
+    assert "Publicar no Mercado Livre" in response.text
+
+
+def test_dashboard_uses_catalog_total_and_valid_manifest_count():
+    response = TestClient(app).get("/dashboard")
+
+    assert response.status_code == 200
+    assert "productsResponse.total" in response.text
+    assert "manifest_error" in response.text
+
+
 def test_legacy_main_entrypoint_resolves_modular_app():
     import main
     import app as modular_app
@@ -364,6 +395,69 @@ def test_metrics_and_static_footer_are_served():
     assert "app-catalog-info" in footer.text
 
 
+def test_product_events_route_is_not_matched_as_product_uuid():
+    response = TestClient(app).get("/api/products/events")
+
+    assert response.status_code == 200
+    assert "events" in response.json()
+
+
+def test_marketplaces_with_enabled_channel_are_json_serializable(product_api):
+    client, _, _, product_dir, _ = product_api
+    manifest_path = product_dir / "product.yaml"
+    manifest_path.write_text(
+        "schema_version: 2\n"
+        "id: 0197f381-7c63-7a1d-a8b1-4e08b8472401\n"
+        "title: Test item\n"
+        "marketplaces:\n"
+        "  mercadolivre:\n"
+        "    enabled: true\n"
+        "    category_id: MLB123\n",
+        encoding="utf-8",
+    )
+
+    scan_response = client.post("/api/products/scan")
+    assert scan_response.status_code == 200
+
+    detail_response = client.get(
+        "/api/products/0197f381-7c63-7a1d-a8b1-4e08b8472401"
+    )
+    assert detail_response.status_code == 200
+    marketplaces = detail_response.json()["marketplaces"]
+    assert marketplaces["mercadolivre"]["enabled"] is True
+    assert marketplaces["mercadolivre"]["category_id"] == "MLB123"
+
+
+def test_product_patch_merges_marketplace_metadata(product_api):
+    client, _, _, product_dir, product_id = product_api
+    manifest_path = product_dir / "product.yaml"
+    manifest_path.write_text(
+        "schema_version: 2\n"
+        f"id: {product_id}\n"
+        "title: Test item\n"
+        "marketplaces:\n"
+        "  mercadolivre:\n"
+        "    enabled: true\n"
+        "    item_id: MLB-123\n"
+        "    permalink: https://example.test/item\n",
+        encoding="utf-8",
+    )
+    client.post("/api/products/scan")
+
+    response = client.patch(
+        f"/api/products/{product_id}",
+        json={"marketplaces": {"mercadolivre": {"enabled": False}}},
+    )
+
+    assert response.status_code == 200
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["marketplaces"]["mercadolivre"] == {
+        "enabled": False,
+        "item_id": "MLB-123",
+        "permalink": "https://example.test/item",
+    }
+
+
 def test_local_picker_token_is_not_cacheable(monkeypatch):
     monkeypatch.setattr("backend_core.runtime.PICKER_TOKEN", "test-local-picker-token")
     response = TestClient(app).get("/api/local/picker-token")
@@ -371,6 +465,88 @@ def test_local_picker_token_is_not_cacheable(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"token": "test-local-picker-token"}
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_mutating_route_requires_api_key(monkeypatch, product_api):
+    client, _, _, _, _ = product_api
+    monkeypatch.setenv("OMNIKESTRAPIM_API_KEY", "test-api-key")
+    response = client.post("/api/products/scan")
+
+    assert response.status_code == 401
+
+    authorized = client.post(
+        "/api/products/scan",
+        headers={"X-API-Key": "test-api-key"},
+    )
+    assert authorized.status_code == 200
+
+
+def test_duplicate_manifest_uuid_creates_unique_copy(tmp_path):
+    database = create_engine(f"sqlite:///{tmp_path / 'duplicate.db'}")
+    Base.metadata.create_all(database)
+    root = tmp_path / "Products"
+    first = root / "First"
+    second = root / "Second"
+    first.mkdir(parents=True)
+    second.mkdir(parents=True)
+    shared_id = "0197f381-7c63-7a1d-a8b1-4e08b8472499"
+    for folder in (first, second):
+        (folder / "product.yaml").write_text(
+            f"schema_version: 2\nid: {shared_id}\ntitle: {folder.name}\n",
+            encoding="utf-8",
+        )
+
+    with Session(database) as db:
+        products = _sync_product_catalog(db, root)
+
+    assert len(products) == 2
+    ids = {str(product.id) for product in products}
+    assert len(ids) == 2
+    assert shared_id in ids
+    for folder in (first, second):
+        manifest = yaml.safe_load(
+            (folder / "product.yaml").read_text(encoding="utf-8")
+        )
+        assert manifest["id"] in ids
+    database.dispose()
+
+
+def test_missing_root_does_not_delete_existing_catalog(tmp_path):
+    database = create_engine(f"sqlite:///{tmp_path / 'missing-root.db'}")
+    Base.metadata.create_all(database)
+    root = tmp_path / "Products"
+    root.mkdir()
+    unavailable = tmp_path / "Unmounted"
+
+    with Session(database) as db:
+        _sync_product_catalog_for_roots(
+            db,
+            (root, unavailable),
+            "default",
+        )
+        db.add(
+            ProductRecord(
+                workspace_id="default",
+                product_uuid="0197f381-7c63-7a1d-a8b1-4e08b8472488",
+                name="Preserved",
+                title="Preserved",
+                folder_group="",
+                path=str(unavailable / "Preserved"),
+                files=[],
+                manifest={},
+                has_manifest=True,
+            )
+        )
+        db.commit()
+        _sync_product_catalog_for_roots(db, (root, unavailable), "default")
+        remaining = db.scalar(
+            select(ProductRecord).where(
+                ProductRecord.product_uuid
+                == "0197f381-7c63-7a1d-a8b1-4e08b8472488"
+            )
+        )
+        assert remaining is not None
+    database.dispose()
 
 
 @pytest.fixture

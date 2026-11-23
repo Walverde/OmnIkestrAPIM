@@ -62,6 +62,9 @@ ensure_default POSTGRES_USER omnikestr
 if ! grep -Eq '^POSTGRES_PASSWORD=.+$' .env; then
   ensure_default POSTGRES_PASSWORD "$(openssl rand -hex 32)"
 fi
+if ! grep -Eq '^OMNIKESTRAPIM_API_KEY=.+$' .env; then
+  ensure_default OMNIKESTRAPIM_API_KEY "$(openssl rand -hex 32)"
+fi
 ensure_default PRODUCTS_DIR ../data/products
 ensure_default PRODUCTS_ROOT /data/products
 ensure_default PRODUCT_ROOTS /data/products
@@ -78,7 +81,7 @@ if [ -s .env ]; then
   fi
 fi
 
-docker compose -f docker/docker-compose.yml up -d --build
+docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 
 echo "OmnIkestrAPIM iniciado em segundo plano."
 echo "Acesse http://localhost:8000 para concluir a configuração inicial."

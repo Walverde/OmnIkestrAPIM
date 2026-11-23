@@ -18,6 +18,7 @@ from ..models import (
     ProductRecord,
 )
 from .dependencies import get_db
+from .dependencies import require_api_key
 
 
 router = APIRouter(prefix="/api/marketplaces", tags=["marketplaces"])
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/api/marketplaces", tags=["marketplaces"])
 def authorize_mercadolivre(
     workspace_id: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=64),
     db: Session = Depends(get_db),
+    _: None = Depends(require_api_key),
 ):
     try:
         connector = get_marketplace_connector("mercadolivre")
@@ -119,6 +121,28 @@ def enqueue_mercadolivre_publish(
     )
     if product is None:
         raise HTTPException(status_code=404, detail="Produto não encontrado.")
+    if product.status in {"sold", "archived"}:
+        raise HTTPException(
+            status_code=409,
+            detail="Produtos vendidos ou arquivados não podem ser publicados.",
+        )
+    active_jobs = db.scalars(
+        select(MarketplaceJobRecord)
+        .where(
+            MarketplaceJobRecord.workspace_id == workspace_id,
+            MarketplaceJobRecord.provider == "mercadolivre",
+            MarketplaceJobRecord.status.in_(["pending", "in_progress"]),
+        )
+    ).all()
+    if any(
+        isinstance(job.payload, dict)
+        and job.payload.get("product_id") == str(product_id)
+        for job in active_jobs
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Já existe uma publicação deste canal em andamento.",
+        )
     marketplace_config = (product.marketplaces or {}).get("mercadolivre", {})
     if not isinstance(marketplace_config, dict) or not marketplace_config.get("enabled"):
         raise HTTPException(

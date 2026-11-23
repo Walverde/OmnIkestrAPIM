@@ -382,6 +382,18 @@ def _is_legacy_group_manifest(manifest_path: Path) -> bool:
     return isinstance(metadata, dict) and set(metadata) == LEGACY_GROUP_MANIFEST_KEYS
 
 
+def _json_marketplaces(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    serialized: dict[str, Any] = {}
+    for name, config in value.items():
+        if hasattr(config, "model_dump"):
+            serialized[str(name)] = config.model_dump(mode="json")
+        elif isinstance(config, dict):
+            serialized[str(name)] = config
+    return serialized
+
+
 def _upsert_product_record(
     db: Session, product: ProductSummary, workspace_id: str
 ) -> ProductRecord:
@@ -422,7 +434,7 @@ def _upsert_product_record(
     record.cost = product.cost
     record.condition = product.condition
     record.status = product.status or "pending"
-    record.marketplaces = product.marketplaces
+    record.marketplaces = _json_marketplaces(product.marketplaces)
     record.manifest = product.manifest or {}
     record.manifest_error = product.manifest_error
     record.ambiguous_structure = product.ambiguous_structure
@@ -460,17 +472,43 @@ def _sync_product_catalog_for_roots(
     products: List[ProductSummary] = []
     current_paths: set[str] = set()
     current_uuids: set[str] = set()
+    unavailable_roots: list[Path] = []
 
     for root in normalized_roots:
+        if not root.exists():
+            unavailable_roots.append(root)
+            continue
         discovered = _scan_products(root, preferred_ids)
         products.extend(discovered)
         current_paths.update(_storage_path(product.path) for product in discovered)
         current_uuids.update(product.id for product in discovered if product.id)
 
+    seen_uuids: dict[str, str] = {}
     for product in products:
+        product_id = str(product.id or "")
+        if product_id and product_id in seen_uuids:
+            new_id = str(uuid4())
+            product.id = new_id
+            manifest_path = Path(product.path) / "product.yaml"
+            if not manifest_path.is_file():
+                manifest_path = Path(product.path) / "product.yml"
+            if manifest_path.is_file():
+                try:
+                    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+                    if isinstance(manifest, dict):
+                        manifest["id"] = new_id
+                        _write_manifest_atomic(manifest_path, manifest)
+                        product.manifest = manifest
+                except (OSError, yaml.YAMLError):
+                    product.manifest_error = "Não foi possível gerar um UUID único para a cópia."
+        elif product_id:
+            seen_uuids[product_id] = str(product.path)
         _upsert_product_record(db, product, workspace_id)
 
     for record in existing_records:
+        record_path = Path(record.path).resolve()
+        if any(record_path.is_relative_to(root.resolve()) for root in unavailable_roots):
+            continue
         if record.path not in current_paths and record.product_uuid not in current_uuids:
             db.delete(record)
 

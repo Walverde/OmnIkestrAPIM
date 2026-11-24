@@ -65,6 +65,13 @@ fi
 if ! grep -Eq '^OMNIKESTRAPIM_API_KEY=.+$' .env; then
   ensure_default OMNIKESTRAPIM_API_KEY "$(openssl rand -hex 32)"
 fi
+if ! grep -Eq '^OMNIKESTRAPIM_ADMIN_PASSWORD=.+$' .env; then
+  ensure_default OMNIKESTRAPIM_ADMIN_PASSWORD "$(openssl rand -hex 24)"
+fi
+if ! grep -Eq '^OMNIKESTRAPIM_SESSION_SECRET=.+$' .env; then
+  ensure_default OMNIKESTRAPIM_SESSION_SECRET "$(openssl rand -hex 32)"
+fi
+ensure_default OMNIKESTRAPIM_COOKIE_SECURE false
 ensure_default PRODUCTS_DIR ../data/products
 ensure_default PRODUCTS_ROOT /data/products
 ensure_default PRODUCT_ROOTS /data/products
@@ -85,3 +92,4 @@ docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 
 echo "OmnIkestrAPIM iniciado em segundo plano."
 echo "Acesse http://localhost:8000 para concluir a configuração inicial."
+echo "A senha inicial do administrador está em OMNIKESTRAPIM_ADMIN_PASSWORD no arquivo .env."

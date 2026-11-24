@@ -1,9 +1,10 @@
 # TrueNAS SCALE 25.10 (Goldeye) — implantação e operação
 
-Este procedimento usa **Custom App com Compose YAML**. Como a API ainda não
-tem autenticação, exponha-a somente a uma rede confiável e faça a primeira
-instalação com dados de teste. Não use dados únicos de produção antes de testar
-backup e restauração.
+Este procedimento usa **Custom App com Compose YAML**. A aplicação exige
+autenticação de administrador, sessão e chave de serviço. O Compose atual
+vincula a porta ao IP LAN e usa HTTP; mantenha-o em rede confiável até configurar
+HTTPS e `OMNIKESTRAPIM_COOKIE_SECURE=true`. Não exponha a API à internet sem
+HTTPS e uma revisão da configuração de implantação.
 
 ## Pré-requisitos e caminhos
 
@@ -17,7 +18,9 @@ backup e restauração.
 O Compose versionado está configurado para:
 
 - `/mnt/gbZaid/OmnIkestrAPIM-Products` — dataset persistente dos produtos,
-  separado do checkout Git e mantido entre atualizações.
+  separado do checkout Git e mantido entre atualizações. O backend monta esse
+  volume com escrita para atualizar manifestos; o watcher o monta como
+  somente leitura, pois apenas observa arquivos e notifica a API.
 - `/mnt/gbZaid/OmnIkestrAPIM/postgres` — dados persistentes do PostgreSQL.
 - `/mnt/gbZaid/OmnIkestrAPIM/secrets/postgres_password` — arquivo secreto no
   host, fora do Git.
@@ -197,9 +200,19 @@ senhas; um dump lógico do PostgreSQL não inclui a senha da role.
 1. Confirme os caminhos, endereço LAN, UID/GID e ACLs dos datasets.
 2. Crie o arquivo de segredo acima. Se esta for uma instalação existente,
    primeiro faça a rotação interativa da senha da role.
-3. Se necessário, autentique o Docker do TrueNAS no GHCR com um PAT de leitura
+3. Configure no ambiente do Custom App (ou no `.env` local protegido e fora do
+   Git) os valores obrigatórios `OMNIKESTRAPIM_API_KEY`,
+   `OMNIKESTRAPIM_ADMIN_PASSWORD` e `OMNIKESTRAPIM_SESSION_SECRET`. Gere chaves
+   aleatórias, guarde-as em um gerenciador de senhas e não as inclua no YAML,
+   Git ou histórico de comandos. A senha do administrador precisa ter ao menos
+   12 caracteres; a chave de API e o segredo de sessão, 32 caracteres cada.
+   Defina `OMNIKESTRAPIM_COOKIE_SECURE=false` somente enquanto
+   usar HTTP na LAN; mude para `true` ao servir por HTTPS. A aplicação usa um
+   único administrador vinculado ao workspace `default`; a chave de API é
+   aceita apenas para ingestão de eventos do watcher.
+4. Se necessário, autentique o Docker do TrueNAS no GHCR com um PAT de leitura
    de pacotes. Informe o token somente no prompt seguro de `docker login`.
-4. No diretório `docker` do checkout, valide e aplique o YAML:
+5. No diretório `docker` do checkout, valide e aplique o YAML:
 
    ```bash
    cd /mnt/gbZaid/OmnIkestrAPIM/docker
@@ -210,9 +223,9 @@ senhas; um dump lógico do PostgreSQL não inclui a senha da role.
 
    No Custom App, aplique as mesmas alterações usando a ação de atualizar/
    reimplantar do TrueNAS.
-5. Confirme que `db`, `backend` e `watcher` estão saudáveis, abra
-   `http://192.168.100.58:8000/` a partir da LAN permitida e teste a
-   reindexação com um dataset de teste.
+6. Confirme que `db`, `backend` e `watcher` estão saudáveis, abra
+   `http://192.168.100.58:8000/` a partir da LAN permitida, entre com a senha do
+   administrador configurada e teste a reindexação com um dataset de teste.
 
 O backend aguarda o PostgreSQL saudável e aplica migrações Alembic ao iniciar.
 Não execute SQL de migração manualmente.
@@ -306,6 +319,13 @@ Livre**; a publicação exige confirmação explícita e o token de ação secre
 O backend enfileira a tarefa no PostgreSQL, envia as imagens válidas, cria ou
 atualiza o anúncio e grava o ID externo no manifesto. Pastas iniciadas por `_`
 continuam excluídas da mídia.
+
+Se uma publicação ficar com status `reconciliation_required`, não a reenvie
+diretamente. Confira o anúncio na conta do Mercado Livre e use
+`POST /api/marketplaces/jobs/{job_id}/reconcile`: informe `item_id` se o anúncio
+existir, ou `confirmed_not_published: true` somente após confirmar que não foi
+criado. O primeiro caso associa o ID externo ao manifesto; o segundo libera uma
+nova tentativa manual.
 
 O adaptador usa OAuth2, guarda access/refresh tokens cifrados no banco e
 renova tokens expirados. A fila persistente processa uma tarefa por vez no

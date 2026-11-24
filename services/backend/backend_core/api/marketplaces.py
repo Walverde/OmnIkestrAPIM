@@ -1,9 +1,14 @@
+from pathlib import Path
 from uuid import UUID
 
+import yaml
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..catalog import _write_manifest_atomic
 from ..marketplaces import (
     MarketplaceConfigurationError,
     MarketplaceRequestError,
@@ -18,17 +23,33 @@ from ..models import (
     ProductRecord,
 )
 from .dependencies import get_db
-from .dependencies import require_api_key
 
 
 router = APIRouter(prefix="/api/marketplaces", tags=["marketplaces"])
+
+
+class MarketplaceJobReconciliation(BaseModel):
+    item_id: str | None = Field(default=None, min_length=1, max_length=128)
+    confirmed_not_published: bool = False
+
+    @field_validator("item_id")
+    @classmethod
+    def strip_item_id(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def require_one_reconciliation_outcome(self):
+        if bool(self.item_id) == self.confirmed_not_published:
+            raise ValueError(
+                "Informe o ID do anúncio encontrado ou confirme que não foi publicado."
+            )
+        return self
 
 
 @router.get("/mercadolivre/authorize")
 def authorize_mercadolivre(
     workspace_id: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=64),
     db: Session = Depends(get_db),
-    _: None = Depends(require_api_key),
 ):
     try:
         connector = get_marketplace_connector("mercadolivre")
@@ -131,7 +152,9 @@ def enqueue_mercadolivre_publish(
         .where(
             MarketplaceJobRecord.workspace_id == workspace_id,
             MarketplaceJobRecord.provider == "mercadolivre",
-            MarketplaceJobRecord.status.in_(["pending", "in_progress"]),
+            MarketplaceJobRecord.status.in_(
+                ["pending", "in_progress", "reconciliation_required"]
+            ),
         )
     ).all()
     if any(
@@ -141,7 +164,7 @@ def enqueue_mercadolivre_publish(
     ):
         raise HTTPException(
             status_code=409,
-            detail="Já existe uma publicação deste canal em andamento.",
+            detail="Existe uma publicação em andamento ou aguardando reconciliação.",
         )
     marketplace_config = (product.marketplaces or {}).get("mercadolivre", {})
     if not isinstance(marketplace_config, dict) or not marketplace_config.get("enabled"):
@@ -162,19 +185,37 @@ def enqueue_mercadolivre_publish(
         workspace_id=workspace_id,
         provider="mercadolivre",
         job_type="publish_product",
+        idempotency_key=f"mercadolivre:publish:{product_id}",
         payload={"product_id": str(product_id)},
     )
-    db.add(job)
-    db.flush()
-    db.add(
-        DomainEventRecord(
-            workspace_id=workspace_id,
-            event_type="marketplace.publish.requested",
-            aggregate_id=str(product_id),
-            payload={"provider": "mercadolivre", "job_id": job.id},
+    try:
+        db.add(job)
+        db.flush()
+        db.add(
+            DomainEventRecord(
+                workspace_id=workspace_id,
+                event_type="marketplace.publish.requested",
+                aggregate_id=str(product_id),
+                payload={"provider": "mercadolivre", "job_id": job.id},
+            )
         )
-    )
-    db.commit()
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        constraint_name = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+        sqlite_unique_conflict = (
+            "UNIQUE constraint failed: marketplace_jobs.workspace_id, "
+            "marketplace_jobs.provider, marketplace_jobs.idempotency_key"
+        ) in str(error.orig)
+        if (
+            constraint_name == "uq_marketplace_jobs_active_idempotency_key"
+            or sqlite_unique_conflict
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Já existe uma publicação deste produto ativa ou aguardando reconciliação.",
+            ) from error
+        raise
     return {"job_id": job.id, "status": job.status}
 
 
@@ -203,6 +244,107 @@ def get_marketplace_job(
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }
+
+
+@router.post("/jobs/{job_id}/reconcile")
+def reconcile_marketplace_job(
+    job_id: int,
+    reconciliation: MarketplaceJobReconciliation,
+    workspace_id: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=64),
+    db: Session = Depends(get_db),
+):
+    job = db.scalar(
+        select(MarketplaceJobRecord).where(
+            MarketplaceJobRecord.id == job_id,
+            MarketplaceJobRecord.workspace_id == workspace_id,
+            MarketplaceJobRecord.status == "reconciliation_required",
+        )
+    )
+    if job is None:
+        raise HTTPException(
+            status_code=409,
+            detail="A tarefa não está aguardando reconciliação.",
+        )
+    product_id = job.payload.get("product_id") if isinstance(job.payload, dict) else None
+    product = db.scalar(
+        select(ProductRecord).where(
+            ProductRecord.workspace_id == workspace_id,
+            ProductRecord.product_uuid == product_id,
+        )
+    )
+    if product is None:
+        raise HTTPException(status_code=404, detail="Produto não encontrado.")
+
+    if reconciliation.item_id:
+        manifest_files = [
+            item
+            for item in product.files
+            if str(item.get("name", "")).lower() in {"product.yaml", "product.yml"}
+        ]
+        manifest_path = (
+            Path(str(manifest_files[0]["full_path"]))
+            if manifest_files
+            else Path(product.path) / "product.yaml"
+        ).resolve()
+        product_root = Path(product.path).resolve()
+        try:
+            manifest_path.relative_to(product_root)
+        except ValueError as error:
+            raise HTTPException(
+                status_code=409, detail="Manifesto fora da pasta do produto."
+            ) from error
+        try:
+            manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as error:
+            raise HTTPException(
+                status_code=409, detail="Não foi possível ler o manifesto do produto."
+            ) from error
+        if not isinstance(manifest, dict):
+            raise HTTPException(
+                status_code=409, detail="O manifesto precisa conter um objeto YAML."
+            )
+        marketplaces = manifest.setdefault("marketplaces", {})
+        if not isinstance(marketplaces, dict):
+            raise HTTPException(
+                status_code=409, detail="A configuração de marketplaces é inválida."
+            )
+        market_config = marketplaces.setdefault(job.provider, {})
+        if not isinstance(market_config, dict):
+            raise HTTPException(
+                status_code=409, detail="A configuração do marketplace é inválida."
+            )
+        market_config.update({"enabled": True, "item_id": reconciliation.item_id})
+        if product.status not in {"sold", "archived"}:
+            product.status = "published"
+            manifest["status"] = "published"
+        _write_manifest_atomic(manifest_path, manifest)
+        product.marketplaces = marketplaces
+        product.manifest = manifest
+        job.status = "succeeded"
+        job.result = {"item_id": reconciliation.item_id, "reconciled": True}
+        job.last_error = None
+        event_type = "marketplace.publish.reconciled"
+        event_payload = {
+            "provider": job.provider,
+            "job_id": job.id,
+            "item_id": reconciliation.item_id,
+        }
+    else:
+        job.status = "failed"
+        job.result = {"reconciled": True, "confirmed_not_published": True}
+        event_type = "marketplace.publish.reconciled_not_published"
+        event_payload = {"provider": job.provider, "job_id": job.id}
+
+    db.add(
+        DomainEventRecord(
+            workspace_id=workspace_id,
+            event_type=event_type,
+            aggregate_id=product_id,
+            payload=event_payload,
+        )
+    )
+    db.commit()
+    return {"job_id": job.id, "status": job.status, "result": job.result}
 
 
 @router.get("/events")

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -110,6 +110,11 @@ def receive_product_event(
     db: Session = Depends(get_db),
     _: None = Depends(require_api_key),
 ):
+    if event.workspace_id != DEFAULT_WORKSPACE_ID:
+        raise HTTPException(
+            status_code=403,
+            detail="O serviço de eventos não pode escolher outro workspace.",
+        )
     _ensure_workspace(db, event.workspace_id)
     record = ProductEventRecord(**event.model_dump())
     db.add(record)

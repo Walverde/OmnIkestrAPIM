@@ -28,7 +28,7 @@ export PUID=1000
 export PGID=1000
 ```
 
-After startup, visit [http://localhost:8000/settings](http://localhost:8000/settings) to review the indexed catalog. The development stack mounts product files into the backend and watcher containers.
+After startup, sign in at [http://localhost:8000/login](http://localhost:8000/login) using `OMNIKESTRAPIM_ADMIN_PASSWORD` from the generated `.env`; then visit [http://localhost:8000/settings](http://localhost:8000/settings) to review the indexed catalog. The development stack mounts product files into the backend and watcher containers.
 
 The API indexes product folders and their files in PostgreSQL. Available routes include:
 
@@ -37,7 +37,13 @@ The API indexes product folders and their files in PostgreSQL. Available routes 
 * `GET /api/products/events` — read persisted watcher events.
 * `GET /api/health` — check API availability.
 
-Product event history and the catalog index are stored in PostgreSQL's persistent `postgres_data` volume. The backend applies Alembic migrations at startup. The default database credentials are for local development only; set `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in the environment before deployment. The API does not include authentication and should not be exposed to the internet. The Windows folder picker requires Docker Desktop and PowerShell on the host; the development setup is intended for local use.
+Product event history and the catalog index are stored in PostgreSQL's persistent `postgres_data` volume. The backend applies Alembic migrations at startup. The default database credentials are for local development only; set `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in the environment before deployment.
+
+The application requires all three security values at startup: `OMNIKESTRAPIM_ADMIN_PASSWORD` (at least 12 characters) for the administrator login, `OMNIKESTRAPIM_SESSION_SECRET` (at least 32 characters) for signed, eight-hour `HttpOnly`/`SameSite=Strict` sessions, and `OMNIKESTRAPIM_API_KEY` (at least 32 characters) for the watcher service. The setup script generates these values in a permission-restricted `.env`; retrieve the initial admin password from that file. Browser API access requires a logged-in session, while the API key is accepted only for watcher event ingestion. The current single-admin authorization is limited to the `default` workspace; other workspace IDs are rejected rather than trusted from request parameters. Missing security configuration prevents backend startup.
+
+For production, set `OMNIKESTRAPIM_COOKIE_SECURE=true` and serve the application over HTTPS. The development setup opts out of the Secure-cookie flag for local HTTP use. Do not expose the application to the internet without HTTPS and a reviewed deployment configuration. The Windows folder picker requires Docker Desktop and PowerShell on the host; the development setup is intended for local use.
+
+Publishing can return `reconciliation_required` when the remote result is ambiguous (including a worker restart during listing creation). Automatic retries are stopped to avoid duplicate listings. Check the Mercado Livre account, then call `POST /api/marketplaces/jobs/{job_id}/reconcile` with either `{"item_id":"<ID externo>"}` to link the found listing or `{"confirmed_not_published":true}` only after verifying no listing was created.
 
 ## TrueNAS SCALE
 

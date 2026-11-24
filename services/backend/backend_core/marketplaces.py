@@ -16,6 +16,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from sqlalchemy import delete, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .catalog import _ensure_workspace, _write_manifest_atomic
@@ -44,6 +45,10 @@ class MarketplaceRequestError(RuntimeError):
     def __init__(self, message: str, retryable: bool = False):
         super().__init__(message)
         self.retryable = retryable
+
+
+class MarketplaceOutcomeUnknown(RuntimeError):
+    pass
 
 
 class MarketplaceConnector(Protocol):
@@ -448,6 +453,24 @@ async def publish_product(
     }
     headers = {"Authorization": f"Bearer {token}"}
     existing_item_id = str(config.get("item_id") or "")
+    manifest_path = product_path / "product.yaml"
+    if not manifest_path.is_file():
+        manifest_path = product_path / "product.yml"
+    try:
+        manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as error:
+        raise MarketplaceConfigurationError(
+            "Não foi possível ler o manifesto do produto."
+        ) from error
+    if not isinstance(manifest, dict):
+        raise MarketplaceConfigurationError("O manifesto do produto não é um objeto YAML.")
+    manifest_marketplaces = manifest.setdefault("marketplaces", {})
+    if not isinstance(manifest_marketplaces, dict):
+        raise MarketplaceConfigurationError("O campo marketplaces do manifesto é inválido.")
+    current_config = manifest_marketplaces.setdefault(PROVIDER, {})
+    if not isinstance(current_config, dict):
+        raise MarketplaceConfigurationError("A configuração Mercado Livre do manifesto é inválida.")
+
     async with httpx.AsyncClient(timeout=30) as client:
         if existing_item_id:
             response = await _rate_limited_request(
@@ -458,46 +481,73 @@ async def publish_product(
                 headers=headers,
             )
         else:
-            response = await _rate_limited_request(
-                client, "POST", f"{API_URL}/items", json=payload, headers=headers
-            )
+            try:
+                response = await _rate_limited_request(
+                    client, "POST", f"{API_URL}/items", json=payload, headers=headers
+                )
+            except httpx.RequestError as error:
+                raise MarketplaceOutcomeUnknown(
+                    "A conexão foi interrompida durante a criação do anúncio; "
+                    "confirme no Mercado Livre antes de tentar novamente."
+                ) from error
     if response.is_error:
+        if not existing_item_id and response.status_code >= 500:
+            raise MarketplaceOutcomeUnknown(
+                "O Mercado Livre retornou um erro após receber a solicitação de criação; "
+                "confirme no Mercado Livre antes de tentar novamente."
+            )
         raise MarketplaceRequestError(
             f"O Mercado Livre recusou o anúncio (HTTP {response.status_code}).",
             retryable=response.status_code == 429 or response.status_code >= 500,
         )
-    item_data = response.json()
+    try:
+        item_data = response.json()
+    except ValueError as error:
+        if not existing_item_id:
+            raise MarketplaceOutcomeUnknown(
+                "A resposta de criação do anúncio era inválida; "
+                "confirme no Mercado Livre antes de tentar novamente."
+            ) from error
+        raise MarketplaceRequestError(
+            "O Mercado Livre retornou uma resposta inválida ao processar o anúncio."
+        ) from error
     if not isinstance(item_data, dict):
+        if not existing_item_id:
+            raise MarketplaceOutcomeUnknown(
+                "A resposta de criação não identificou o anúncio; "
+                "confirme no Mercado Livre antes de tentar novamente."
+            )
         raise MarketplaceRequestError(
             "O Mercado Livre retornou uma resposta inválida ao processar o anúncio."
         )
     item_id = str(item_data.get("id") or existing_item_id)
     if not item_id:
+        if not existing_item_id:
+            raise MarketplaceOutcomeUnknown(
+                "A resposta de criação não incluiu o ID do anúncio; "
+                "confirme no Mercado Livre antes de tentar novamente."
+            )
         raise MarketplaceRequestError("A resposta do Mercado Livre não incluiu o ID do anúncio.")
 
-    manifest_path = product_path / "product.yaml"
-    if not manifest_path.is_file():
-        manifest_path = product_path / "product.yml"
-    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(manifest, dict):
-        raise MarketplaceConfigurationError("O manifesto do produto não é um objeto YAML.")
-    manifest_marketplaces = manifest.setdefault("marketplaces", {})
-    if not isinstance(manifest_marketplaces, dict):
-        raise MarketplaceConfigurationError("O campo marketplaces do manifesto é inválido.")
-    current_config = manifest_marketplaces.setdefault(PROVIDER, {})
-    if not isinstance(current_config, dict):
-        raise MarketplaceConfigurationError("A configuração Mercado Livre do manifesto é inválida.")
     current_config["item_id"] = item_id
     current_config["enabled"] = True
     permalink = str(item_data.get("permalink", config.get("permalink", "")))
     if permalink:
         current_config["permalink"] = permalink
     manifest["status"] = "published"
-    _write_manifest_atomic(manifest_path, manifest)
-    product.marketplaces = manifest_marketplaces
-    product.manifest = manifest
-    product.status = "published"
-    db.commit()
+    try:
+        _write_manifest_atomic(manifest_path, manifest)
+        product.marketplaces = manifest_marketplaces
+        product.manifest = manifest
+        product.status = "published"
+        db.commit()
+    except (OSError, SQLAlchemyError) as error:
+        if not existing_item_id:
+            raise MarketplaceOutcomeUnknown(
+                "O anúncio pode ter sido criado, mas o estado local não foi salvo; "
+                "confirme no Mercado Livre antes de tentar novamente."
+            ) from error
+        raise
 
     if product.description:
         async with httpx.AsyncClient(timeout=20) as client:

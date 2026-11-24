@@ -8,14 +8,21 @@ import yaml
 from PIL import Image
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
+os.environ["OMNIKESTRAPIM_API_KEY"] = "test-api-key-for-tests-1234567890-abcd"
+os.environ["OMNIKESTRAPIM_ADMIN_PASSWORD"] = "test-admin-password"
+os.environ["OMNIKESTRAPIM_SESSION_SECRET"] = "test-session-secret-with-sufficient-length"
+os.environ["OMNIKESTRAPIM_COOKIE_SECURE"] = "false"
 
 from app import app
-from backend_core.database import Base, engine
 from backend_core.api.dependencies import get_db
+from backend_core.database import Base, engine
+from backend_core.marketplace_worker import _mark_reconciliation_required
 from backend_core.models import (
+    MarketplaceJobRecord,
     ProductEvent,
     ProductEventRecord,
     ProductRecord,
@@ -28,6 +35,15 @@ from backend_core.catalog import (
     _product_directory_for_path,
     _write_manifest_atomic,
 )
+
+
+def _login(client):
+    response = client.post(
+        "/api/auth/login",
+        json={"password": "test-admin-password"},
+    )
+    assert response.status_code == 200
+    return client
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -336,7 +352,7 @@ def test_moving_file_between_products_preserves_both_identities(tmp_path):
 
 
 def test_dashboard_routes_return_html():
-    client = TestClient(app)
+    client = _login(TestClient(app))
 
     root = client.get("/")
     dashboard = client.get("/dashboard")
@@ -360,7 +376,8 @@ def test_dashboard_routes_return_html():
 
 
 def test_product_ui_includes_price_floor_and_publish_action():
-    response = TestClient(app).get("/products/0197f381-7c63-7a1d-a8b1-4e08b8472401")
+    client = _login(TestClient(app))
+    response = client.get("/products/0197f381-7c63-7a1d-a8b1-4e08b8472401")
 
     assert response.status_code == 200
     assert "Piso de preço" in response.text
@@ -368,7 +385,7 @@ def test_product_ui_includes_price_floor_and_publish_action():
 
 
 def test_dashboard_uses_catalog_total_and_valid_manifest_count():
-    response = TestClient(app).get("/dashboard")
+    response = _login(TestClient(app)).get("/dashboard")
 
     assert response.status_code == 200
     assert "productsResponse.total" in response.text
@@ -383,7 +400,7 @@ def test_legacy_main_entrypoint_resolves_modular_app():
 
 
 def test_metrics_and_static_footer_are_served():
-    client = TestClient(app)
+    client = _login(TestClient(app))
 
     client.get("/api/health")
     metrics = client.get("/metrics")
@@ -396,7 +413,7 @@ def test_metrics_and_static_footer_are_served():
 
 
 def test_product_events_route_is_not_matched_as_product_uuid():
-    response = TestClient(app).get("/api/products/events")
+    response = _login(TestClient(app)).get("/api/products/events")
 
     assert response.status_code == 200
     assert "events" in response.json()
@@ -460,7 +477,7 @@ def test_product_patch_merges_marketplace_metadata(product_api):
 
 def test_local_picker_token_is_not_cacheable(monkeypatch):
     monkeypatch.setattr("backend_core.runtime.PICKER_TOKEN", "test-local-picker-token")
-    response = TestClient(app).get("/api/local/picker-token")
+    response = _login(TestClient(app)).get("/api/local/picker-token")
 
     assert response.status_code == 200
     assert response.json() == {"token": "test-local-picker-token"}
@@ -469,16 +486,40 @@ def test_local_picker_token_is_not_cacheable(monkeypatch):
 
 def test_mutating_route_requires_api_key(monkeypatch, product_api):
     client, _, _, _, _ = product_api
-    monkeypatch.setenv("OMNIKESTRAPIM_API_KEY", "test-api-key")
-    response = client.post("/api/products/scan")
+    client.cookies.clear()
+    response = client.post(
+        "/api/products/watch",
+        json={"event": "modified", "path": "/tmp/not-a-product"},
+        headers={"Origin": "http://testserver"},
+    )
 
     assert response.status_code == 401
 
     authorized = client.post(
-        "/api/products/scan",
-        headers={"X-API-Key": "test-api-key"},
+        "/api/products/watch",
+        json={"event": "modified", "path": "/tmp/not-a-product"},
+        headers={"X-API-Key": "test-api-key-for-tests-1234567890-abcd"},
     )
     assert authorized.status_code == 200
+    assert client.post(
+        "/api/products/scan",
+        headers={"X-API-Key": "test-api-key-for-tests-1234567890-abcd"},
+    ).status_code == 401
+
+
+def test_watcher_cannot_choose_another_workspace(product_api):
+    client, _, _, product_dir, _ = product_api
+
+    response = client.post(
+        "/api/products/watch",
+        json={
+            "event": "modified",
+            "path": str(product_dir / "product.yaml"),
+            "workspace_id": "another-workspace",
+        },
+    )
+
+    assert response.status_code == 403
 
 
 def test_duplicate_manifest_uuid_creates_unique_copy(tmp_path):
@@ -582,10 +623,113 @@ def product_api(tmp_path, monkeypatch):
     with Session(database) as session:
         _sync_product_catalog(session, product_root)
 
-    client = TestClient(app)
+    client = _login(TestClient(app))
     yield client, database, product_root, product_dir, product_id
     client.close()
     app.dependency_overrides.clear()
+    database.dispose()
+
+
+def test_login_is_required_and_session_is_invalidated_on_logout():
+    client = TestClient(app)
+
+    assert client.get("/", follow_redirects=False).status_code == 303
+    assert client.get("/api/products").status_code == 401
+    assert client.post("/api/auth/login", json={"password": "wrong"}).status_code == 401
+
+    _login(client)
+    assert client.get("/api/products").status_code == 200
+    assert client.get("/api/products?workspace_id=other").status_code == 403
+    assert client.post(
+        "/api/products/scan",
+        headers={"Origin": "https://attacker.example"},
+    ).status_code == 403
+    assert client.post("/api/auth/logout").status_code == 200
+    assert client.get("/api/products").status_code == 401
+
+
+def test_security_configuration_fails_closed_when_api_key_is_missing(monkeypatch):
+    monkeypatch.delenv("OMNIKESTRAPIM_API_KEY")
+
+    with pytest.raises(RuntimeError, match="OMNIKESTRAPIM_API_KEY"):
+        with TestClient(app):
+            pass
+
+
+def test_interrupted_publish_requires_reconciliation(product_api, monkeypatch):
+    client, database, _, product_dir, product_id = product_api
+    monkeypatch.setattr("backend_core.marketplace_worker.database.engine", database)
+    with Session(database) as session:
+        job = MarketplaceJobRecord(
+            workspace_id="default",
+            provider="mercadolivre",
+            job_type="publish_product",
+            payload={"product_id": product_id},
+            status="in_progress",
+        )
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    _mark_reconciliation_required(
+        job_id,
+        "default",
+        "mercadolivre",
+        {"product_id": product_id},
+        RuntimeError("The remote result is unknown"),
+    )
+    with Session(database) as session:
+        job = session.get(MarketplaceJobRecord, job_id)
+        assert job.status == "reconciliation_required"
+
+    response = client.post(
+        f"/api/marketplaces/jobs/{job_id}/reconcile",
+        json={"item_id": "MLB123456"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "succeeded"
+    manifest = yaml.safe_load((product_dir / "product.yaml").read_text(encoding="utf-8"))
+    assert manifest["marketplaces"]["mercadolivre"]["item_id"] == "MLB123456"
+
+
+def test_active_marketplace_idempotency_key_is_unique(tmp_path):
+    database = create_engine(f"sqlite:///{tmp_path / 'idempotency.db'}")
+    Base.metadata.create_all(database)
+    with Session(database) as session:
+        session.add(
+            MarketplaceJobRecord(
+                workspace_id="default",
+                provider="mercadolivre",
+                job_type="publish_product",
+                idempotency_key="mercadolivre:publish:item-1",
+                payload={"product_id": "item-1"},
+                status="failed",
+            )
+        )
+        session.add(
+            MarketplaceJobRecord(
+                workspace_id="default",
+                provider="mercadolivre",
+                job_type="publish_product",
+                idempotency_key="mercadolivre:publish:item-1",
+                payload={"product_id": "item-1"},
+                status="pending",
+            )
+        )
+        session.commit()
+        session.add(
+            MarketplaceJobRecord(
+                workspace_id="default",
+                provider="mercadolivre",
+                job_type="publish_product",
+                idempotency_key="mercadolivre:publish:item-1",
+                payload={"product_id": "item-1"},
+                status="in_progress",
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
     database.dispose()
 
 

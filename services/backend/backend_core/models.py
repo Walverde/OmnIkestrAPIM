@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -116,6 +117,19 @@ class MarketplaceJobRecord(Base):
     __tablename__ = "marketplace_jobs"
     __table_args__ = (
         Index("ix_marketplace_jobs_status_available", "status", "available_at"),
+        Index(
+            "uq_marketplace_jobs_active_idempotency_key",
+            "workspace_id",
+            "provider",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('pending', 'in_progress', 'reconciliation_required')"
+            ),
+            sqlite_where=text(
+                "status IN ('pending', 'in_progress', 'reconciliation_required')"
+            ),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -124,6 +138,7 @@ class MarketplaceJobRecord(Base):
     )
     provider: Mapped[str] = mapped_column(String(64))
     job_type: Mapped[str] = mapped_column(String(64))
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
     payload: Mapped[dict[str, Any]] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     attempts: Mapped[int] = mapped_column(default=0)

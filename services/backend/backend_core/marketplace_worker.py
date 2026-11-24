@@ -12,6 +12,7 @@ from . import database
 from .api.observability import QUEUE_JOBS
 from .marketplaces import (
     MarketplaceConfigurationError,
+    MarketplaceOutcomeUnknown,
     MarketplaceRequestError,
     get_marketplace_connector,
 )
@@ -36,8 +37,27 @@ def _recover_interrupted_jobs() -> None:
             if not jobs:
                 return
             for job in jobs:
-                job.status = "pending"
-                job.available_at = datetime.now(timezone.utc)
+                product_id = job.payload.get("product_id") if isinstance(job.payload, dict) else None
+                product = db.scalar(
+                    select(ProductRecord).where(
+                        ProductRecord.workspace_id == job.workspace_id,
+                        ProductRecord.product_uuid == product_id,
+                    )
+                )
+                marketplace_config = (
+                    (product.marketplaces or {}).get(job.provider, {})
+                    if product is not None
+                    else {}
+                )
+                if isinstance(marketplace_config, dict) and marketplace_config.get("item_id"):
+                    job.status = "pending"
+                    job.available_at = datetime.now(timezone.utc)
+                else:
+                    job.status = "reconciliation_required"
+                    job.last_error = (
+                        "A tarefa foi interrompida durante a criação. Confirme no marketplace "
+                        "se o anúncio foi criado antes de tentar novamente."
+                    )
             db.commit()
             logger.warning(
                 "Recovered interrupted marketplace jobs",
@@ -109,6 +129,10 @@ async def _run_job(job_id: int, workspace_id: str, provider: str, payload: dict)
             "Marketplace job completed",
             extra={"event": "marketplace.job.succeeded", "job_id": job_id, "provider": provider},
         )
+    except MarketplaceOutcomeUnknown as error:
+        _mark_reconciliation_required(
+            job_id, workspace_id, provider, payload, error
+        )
     except MarketplaceConfigurationError as error:
         _finish_job(job_id, workspace_id, provider, payload, error, retry=False)
     except MarketplaceRequestError as error:
@@ -169,6 +193,44 @@ def _finish_job(
             "job_id": job_id,
             "provider": provider,
             "attempt": attempts,
+            "error": str(error),
+        },
+    )
+
+
+def _mark_reconciliation_required(
+    job_id: int,
+    workspace_id: str,
+    provider: str,
+    payload: dict,
+    error: Exception,
+) -> None:
+    with Session(database.engine) as db:
+        job = db.get(MarketplaceJobRecord, job_id)
+        if job is None:
+            return
+        job.status = "reconciliation_required"
+        job.last_error = str(error)[:2048]
+        db.add(
+            DomainEventRecord(
+                workspace_id=workspace_id,
+                event_type="marketplace.publish.reconciliation_required",
+                aggregate_id=payload.get("product_id"),
+                payload={
+                    "provider": provider,
+                    "job_id": job_id,
+                    "error": str(error)[:500],
+                },
+            )
+        )
+        db.commit()
+    QUEUE_JOBS.labels(provider=provider, status="reconciliation_required").inc()
+    logger.error(
+        "Marketplace job requires manual reconciliation",
+        extra={
+            "event": "marketplace.job.reconciliation_required",
+            "job_id": job_id,
+            "provider": provider,
             "error": str(error),
         },
     )

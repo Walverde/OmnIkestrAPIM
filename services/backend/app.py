@@ -1,5 +1,6 @@
 import asyncio
 import hmac
+import logging
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from urllib.parse import urlparse
@@ -25,9 +26,14 @@ from backend_core.api.products import router as products_router
 from backend_core.api.system import router as system_router
 from backend_core.catalog import _sync_product_catalog_for_roots
 from backend_core.database import SessionLocal, run_migrations
+from backend_core.json_logging import configure_json_logging
 from backend_core.marketplace_worker import run_marketplace_worker
 from backend_core import runtime
 from backend_core.models import DEFAULT_WORKSPACE_ID
+
+
+configure_json_logging()
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -35,7 +41,12 @@ async def lifespan(app: FastAPI):
     validate_security_configuration()
     run_migrations()
     with SessionLocal() as db:
-        restore_saved_product_roots(db)
+        app.state.setup_warning = restore_saved_product_roots(db)
+    if app.state.setup_warning:
+        logger.warning(
+            app.state.setup_warning,
+            extra={"event": "setup.saved_product_roots_invalid"},
+        )
 
     stop_event = asyncio.Event()
 
@@ -43,17 +54,22 @@ async def lifespan(app: FastAPI):
         with SessionLocal() as db:
             _sync_product_catalog_for_roots(db, runtime.PRODUCT_ROOTS)
 
-    catalog_task = asyncio.create_task(asyncio.to_thread(reconcile_catalog))
+    catalog_task = (
+        None
+        if app.state.setup_warning
+        else asyncio.create_task(asyncio.to_thread(reconcile_catalog))
+    )
     worker_task = asyncio.create_task(run_marketplace_worker(stop_event))
     app.state.marketplace_worker_stop = stop_event
     try:
         yield
     finally:
         stop_event.set()
-        if not catalog_task.done():
+        if catalog_task is not None and not catalog_task.done():
             catalog_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await catalog_task
+        if catalog_task is not None:
+            with suppress(asyncio.CancelledError):
+                await catalog_task
         with suppress(asyncio.CancelledError):
             await worker_task
 
@@ -141,12 +157,13 @@ async def require_authenticated_session(request, call_next):
                     headers={"Cache-Control": "no-store"},
                 )
 
-    if path == "/metrics" or path in {"/docs", "/redoc", "/openapi.json"}:
+    if path in {"/docs", "/redoc", "/openapi.json"}:
         if not is_authenticated:
             return RedirectResponse("/login", status_code=303)
     elif (
         not is_api_request
         and path != "/login"
+        and path != "/metrics"
         and (
             not path.startswith("/static/")
             or path.endswith(".html")

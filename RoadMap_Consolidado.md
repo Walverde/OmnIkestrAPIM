@@ -36,11 +36,13 @@ Este roadmap controla o escopo, prioridades, decisões e progresso. A implementa
 - `product.yaml` é lido e gravado atomicamente; o catálogo PostgreSQL é um índice reconstruível. Edições preservam chaves YAML desconhecidas.
 - Catálogo isolado por workspace, identidade estável por UUID e suporte configurável a múltiplas raízes.
 - Watcher com debounce, regras de exclusão configuráveis, reindexação manual e reconciliação periódica.
-- Login de administrador com sessão assinada, chave de serviço restrita a eventos do watcher, rejeição de workspace fora de `default` e exigência de configuração de segurança na inicialização.
+- Login de administrador com sessão assinada, chave de serviço restrita a eventos do watcher, rejeição de workspace fora de `default`, limites de IP configuráveis atrás de proxy confiável e aviso de setup quando raízes salvas deixam a allowlist.
 - Compose TrueNAS configura o volume de produtos como somente leitura para o watcher; backend mantém acesso de escrita.
-- Jobs de publicação usam chave idempotente única enquanto ativos; resultados remotos ambíguos exigem reconciliação manual, sem retry automático.
+- Jobs de publicação usam chave idempotente única enquanto ativos; falhas de conexão tentam reconciliar pelo UUID exato em `seller_custom_field`; resultados sem correspondência verificável e reinícios ambíguos continuam exigindo reconciliação manual.
+- Índice vazio só remove registros com ação explícita de limpeza forçada; essa ação não apaga arquivos.
+- Métricas `/metrics` estão acessíveis sem login; logs de aplicação do backend são emitidos em JSON; epochs de autenticação usam `BigInteger`.
 - Imagens podem ser entregues diretamente ou processadas como thumbnails WebP.
-- Testes locais em 24/11/2026: 33 testes do backend e 7 do watcher aprovados.
+- Suítes locais após as correções: 54 testes do backend e 8 do watcher aprovados em 26/11/2026.
 
 ### Lacunas e verificações pendentes
 
@@ -115,14 +117,14 @@ As versões abaixo organizam prioridades; são propostas de planejamento, não c
 1. [x] Eliminar duplicação do backend antigo; `services/backend/main.py` agora é somente alias de `app:app` (concluído e validado em 24/11/2026).
 2. [-] Revisar autenticação e autorização. Sessão de administrador único, chave de serviço restrita e limite ao workspace `default` foram implementados e cobertos por testes locais; revisão independente, HTTPS e validação no TrueNAS continuam pendentes.
 3. [x] Corrigir documentação desatualizada sobre autenticação, limitações de acesso e configuração segura (concluído em 24/11/2026).
-4. [x] Executar integralmente as suítes locais: 33 testes do backend e 7 do watcher aprovados em 24/11/2026; confirmar também a execução na pipeline CI após integração.
+4. [x] Executar integralmente as suítes locais: 54 testes do backend e 8 do watcher aprovados em 26/11/2026; confirmar também a execução na pipeline CI após integração.
 5. [-] Validar mecanismos de proteção do TrueNAS: chave obrigatória, secrets, rede e volume do watcher somente leitura. Compose e configuração resolvida foram verificados localmente em 24/11/2026; falta implantar e testar no host.
 6. [ ] Testar backup e restauração, incluindo consistência do banco e do dataset de produtos, atualização e rollback no TrueNAS.
 
 #### OmnIkestrAPIM 0.3 — Marketplace confiável
 
-7. [-] Tornar a publicação idempotente: chave única para jobs ativos e prevenção de duplicação em resultados ambíguos implementadas; validar migração, recuperação e fluxo manual de reconciliação no TrueNAS antes de concluir.
-8. [-] Melhorar a recuperação de jobs interrompidos: jobs sem ID remoto conhecido passam a exigir reconciliação manual; validar outros pontos de falha e recuperação operacional.
+7. [-] Tornar a publicação idempotente: chave única para jobs ativos e reconciliação automática por UUID exato após falhas de conexão implementadas; sem correspondência exata permanece a reconciliação manual; validar no TrueNAS antes de concluir.
+8. [-] Melhorar a recuperação de jobs interrompidos: jobs sem ID remoto conhecido exigem reconciliação manual; validar outros pontos de falha e recuperação operacional.
 9. [ ] Sincronizar alterações de anúncios existentes com o marketplace.
 10. [ ] Implementar gerenciamento de anúncios existentes (consulta, atualização e ciclo de vida).
 11. [ ] Padronizar erros de publicação, estados e respostas exibidos ao operador.
@@ -254,7 +256,7 @@ Status funcional concluído em 22/11/2026, conforme validação reportada no amb
 **Status:** Em implementação — eventos, fila e telemetria locais implementados; testes da suíte aprovados em 24/11/2026; validação operacional pendente
 
 - [x] Eventos de catálogo, preço e integração persistidos em `domain_events`, com consulta via API; cobertos pela suíte backend aprovada em 24/11/2026
-- [x] Logs JSON e métricas Prometheus HTTP/fila disponíveis em `/metrics`; testes locais aprovados em 24/11/2026
+- [x] Logs JSON e métricas Prometheus HTTP/fila disponíveis em `/metrics` (endpoint público para scraping); testes locais aprovados em 26/11/2026
 - [ ] Centralização externa de logs e configuração de alertas no coletor Prometheus/stack do operador
 
 ---
@@ -321,7 +323,7 @@ Status funcional concluído em 22/11/2026, conforme validação reportada no amb
 1. [-] Concluir a revisão da autenticação e autorização e validar HTTPS, secrets e regras de rede no TrueNAS (implementação e testes locais feitos; validação operacional pendente).
 2. [-] Implantar o Compose atualizado e confirmar o watcher read-only e o backend read-write no TrueNAS, com observação, notificação e edição de manifestos funcionais.
 3. [ ] Executar e validar backup/restauração, atualização e rollback no TrueNAS.
-4. [x] Executar localmente as suítes completas do backend (33 testes) e watcher (7 testes), ambas aprovadas em 24/11/2026; confirmar a pipeline CI após integração.
+4. [x] Executar localmente as suítes completas do backend (54 testes) e watcher (8 testes), ambas aprovadas em 26/11/2026; confirmar a pipeline CI após integração.
 5. [-] Validar migrações e recuperação idempotente da fila com a stack real antes de concluir a etapa Marketplace 0.3.
 6. [-] Validar instalação limpa do Zero-Config/wizard e seleção de raízes permitidas em volumes montados no TrueNAS.
 

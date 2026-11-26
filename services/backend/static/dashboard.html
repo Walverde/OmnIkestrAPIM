@@ -217,6 +217,18 @@
       cursor: wait;
     }
 
+    .cleanup-action {
+      border: 1px solid #a34432;
+      background: #fff;
+      color: #a34432;
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .cleanup-action:disabled { opacity: 0.7; cursor: wait; }
+
     .status-pill::before {
       content: "";
       width: 8px;
@@ -444,6 +456,7 @@
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <div class="status-pill" id="system-status-pill">Sistema online</div>
         <button class="primary-action" id="scan-button" type="button">Analisar pasta</button>
+        <button class="cleanup-action" id="cleanup-button" type="button">Forçar limpeza do índice</button>
       </div>
     </header>
 
@@ -550,6 +563,7 @@
     const notificationsList = document.querySelector('#notifications-list');
     const updatesList = document.querySelector('#updates-list');
     const scanButton = document.querySelector('#scan-button');
+    const cleanupButton = document.querySelector('#cleanup-button');
 
     function formatRelativeTime(value) {
       if (!value) return 'Nunca';
@@ -689,6 +703,25 @@
 
     scanButton.addEventListener('click', () => {
       loadOverview(true);
+    });
+
+    cleanupButton.addEventListener('click', async () => {
+      const confirmed = window.confirm(
+        'Remover do índice os registros sem produtos encontrados nas raízes atuais? Os arquivos não serão apagados.'
+      );
+      if (!confirmed) return;
+      cleanupButton.disabled = true;
+      try {
+        const response = await fetch('/api/products/scan?force_cleanup=true', { method: 'POST' });
+        if (!response.ok) throw new Error('Falha ao limpar os registros do índice.');
+        const result = await response.json();
+        window.alert(`Limpeza concluída: ${result.removed_records} registro(s) removido(s).`);
+        await loadOverview();
+      } catch (error) {
+        window.alert(error.message);
+      } finally {
+        cleanupButton.disabled = false;
+      }
     });
 
     loadOverview();

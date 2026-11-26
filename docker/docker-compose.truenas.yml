@@ -38,7 +38,7 @@ services:
           exit 1
         fi
         export DATABASE_URL="postgresql+psycopg2://$${POSTGRES_USER}:$${DB_PASSWORD}@db:5432/$${POSTGRES_DB}"
-        exec uvicorn app:app --app-dir /app --host 0.0.0.0 --port 8000
+        exec python -m backend_core.server
     ports:
       - "${TRUENAS_LAN_IP:-192.168.100.58}:8000:8000"
     environment:
@@ -51,6 +51,8 @@ services:
       OMNIKESTRAPIM_ADMIN_PASSWORD: "${OMNIKESTRAPIM_ADMIN_PASSWORD:?Configure OMNIKESTRAPIM_ADMIN_PASSWORD}"
       OMNIKESTRAPIM_SESSION_SECRET: "${OMNIKESTRAPIM_SESSION_SECRET:?Configure OMNIKESTRAPIM_SESSION_SECRET}"
       OMNIKESTRAPIM_COOKIE_SECURE: "${OMNIKESTRAPIM_COOKIE_SECURE:-false}"
+      UVICORN_PROXY_HEADERS: "${UVICORN_PROXY_HEADERS:-true}"
+      FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS:-127.0.0.1}"
       PUID: "568"
       PGID: "568"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-}"

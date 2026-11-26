@@ -6,10 +6,10 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import (
     Boolean,
+    BigInteger,
     DateTime,
     ForeignKey,
     Index,
-    Integer,
     JSON,
     Numeric,
     String,
@@ -46,7 +46,7 @@ class AuthSessionRecord(Base):
     __tablename__ = "auth_sessions"
 
     session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    expires_at: Mapped[int] = mapped_column(Integer, index=True)
+    expires_at: Mapped[int] = mapped_column(BigInteger, index=True)
 
 
 class LoginAttemptRecord(Base):
@@ -57,7 +57,7 @@ class LoginAttemptRecord(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     client_key: Mapped[str] = mapped_column(String(64))
-    attempted_at: Mapped[int] = mapped_column(Integer)
+    attempted_at: Mapped[int] = mapped_column(BigInteger)
 
 
 class ProductEventRecord(Base):

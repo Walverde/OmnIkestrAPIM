@@ -1,6 +1,8 @@
 import asyncio
 import json
+import logging
 import os
+from datetime import datetime, timezone
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -8,11 +10,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import httpx
 import yaml
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from PIL import Image
-from sqlalchemy import create_engine, delete, select
+from sqlalchemy import BigInteger, create_engine, delete, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.requests import Request
@@ -34,11 +37,13 @@ from backend_core.marketplace_worker import (
     _run_job,
     run_marketplace_worker,
 )
-from backend_core.marketplaces import publish_product
+from backend_core.json_logging import JsonFormatter
+from backend_core.marketplaces import MarketplaceOutcomeUnknown, publish_product
 from backend_core.models import (
     AppSettingRecord,
     AuthSessionRecord,
     LoginAttemptRecord,
+    MarketplaceCredentialRecord,
     MarketplaceJobRecord,
     ProductEvent,
     ProductEventRecord,
@@ -128,6 +133,60 @@ def test_scan_products_recurses_groups_and_flags_ambiguous_product_folders(tmp_p
     assert by_path["Acessórios/Tripé"].folder_group == "Acessórios"
     assert by_path["Acessórios/Tripé"].ambiguous_structure is True
     assert any(file.name == "product.yaml" and "images/archive" in file.relative_path for file in by_path["Eletrônicos/Notebooks/ThinkPad"].files)
+
+
+def test_product_patch_assigns_new_uuid_when_manifest_changed_to_duplicate(
+    product_api,
+):
+    client, database, product_root, product_dir, product_id = product_api
+    other_id = "0197f381-7c63-7a1d-a8b1-4e08b8472402"
+    other_dir = product_root / "Other item"
+    other_dir.mkdir()
+    (other_dir / "product.yaml").write_text(
+        f"id: {other_id}\ntitle: Other item\n", encoding="utf-8"
+    )
+    with Session(database) as db:
+        _sync_product_catalog(db, product_root)
+
+    manifest_path = product_dir / "product.yaml"
+    manifest_path.write_text(
+        f"id: {other_id}\ntitle: Test item\n", encoding="utf-8"
+    )
+    response = client.patch(
+        f"/api/products/{product_id}", json={"description": "Updated"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] not in {product_id, other_id}
+    assert yaml.safe_load(manifest_path.read_text(encoding="utf-8"))["id"] == response.json()["id"]
+
+
+def test_force_cleanup_scan_endpoint_removes_empty_catalog_records(product_api):
+    client, _, _, product_dir, _ = product_api
+    for path in product_dir.iterdir():
+        path.unlink()
+    product_dir.rmdir()
+
+    response = client.post("/api/products/scan?force_cleanup=true")
+
+    assert response.status_code == 200
+    assert response.json()["force_cleanup"] is True
+    assert response.json()["removed_records"] == 1
+
+
+def test_invalid_saved_roots_show_setup_warning_instead_of_crashing(product_api):
+    client, _, _, _, _ = product_api
+    warning = "A raiz salva não está mais permitida."
+    client.app.state.setup_warning = warning
+    try:
+        status = client.get("/api/setup/status")
+        setup_page = client.get("/")
+    finally:
+        client.app.state.setup_warning = None
+
+    assert status.json()["warning"] == warning
+    assert status.json()["completed"] is False
+    assert "Onde estão seus produtos?" in setup_page.text
 
 
 def test_scan_products_descends_legacy_scanner_group_placeholder_without_rewriting_it(tmp_path):
@@ -382,6 +441,44 @@ def test_moving_file_between_products_preserves_both_identities(tmp_path):
     database.dispose()
 
 
+def test_incremental_event_assigns_new_uuid_to_duplicate_manifest(tmp_path):
+    database = create_engine(f"sqlite:///{tmp_path / 'event-duplicate.db'}")
+    Base.metadata.create_all(database)
+    root = tmp_path / "Products"
+    original = root / "Original"
+    duplicate = root / "Duplicate"
+    original.mkdir(parents=True)
+    shared_id = "0197f381-7c63-7a1d-a8b1-4e08b8472499"
+    (original / "product.yaml").write_text(
+        f"id: {shared_id}\ntitle: Original\n", encoding="utf-8"
+    )
+
+    with Session(database) as db:
+        _sync_product_catalog(db, root)
+        original_record = db.scalar(
+            select(ProductRecord).where(ProductRecord.path == str(original))
+        )
+        original_id = original_record.product_uuid
+        duplicate.mkdir()
+        (duplicate / "product.yaml").write_text(
+            f"id: {shared_id}\ntitle: Duplicate\n", encoding="utf-8"
+        )
+        _sync_product_for_event(
+            db,
+            root,
+            ProductEvent(event="created", path=str(duplicate), is_directory=True),
+        )
+        duplicate_record = db.scalar(
+            select(ProductRecord).where(ProductRecord.path == str(duplicate))
+        )
+        assert original_record.product_uuid == original_id
+        assert duplicate_record.product_uuid != original_id
+        assert yaml.safe_load(
+            (duplicate / "product.yaml").read_text(encoding="utf-8")
+        )["id"] == duplicate_record.product_uuid
+    database.dispose()
+
+
 def test_dashboard_routes_return_html():
     client = _login(TestClient(app))
 
@@ -404,6 +501,43 @@ def test_dashboard_routes_return_html():
     assert "Dados do produto" in product_detail.text
     assert "Primeiros passos" in settings.text
     assert "Pasta no Windows" not in settings.text
+
+
+def test_metrics_are_available_without_login():
+    response = TestClient(app).get("/metrics")
+
+    assert response.status_code == 200
+    assert "omnikestr_http_requests_total" in response.text
+
+
+def test_proxy_server_uses_configurable_forwarded_ip_trust(monkeypatch):
+    from backend_core import server
+
+    calls = []
+    monkeypatch.setattr(server.uvicorn, "run", lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setenv("UVICORN_PROXY_HEADERS", "false")
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "10.0.0.2,10.0.0.3")
+
+    server.main()
+
+    assert calls[0][1]["proxy_headers"] is False
+    assert calls[0][1]["forwarded_allow_ips"] == "10.0.0.2,10.0.0.3"
+
+
+def test_epoch_auth_columns_use_bigint():
+    assert isinstance(AuthSessionRecord.__table__.c.expires_at.type, BigInteger)
+    assert isinstance(LoginAttemptRecord.__table__.c.attempted_at.type, BigInteger)
+
+
+def test_json_formatter_includes_structured_fields():
+    record = logging.LogRecord("backend", logging.WARNING, __file__, 1, "warning", (), None)
+    record.event = "setup.warning"
+
+    entry = json.loads(JsonFormatter().format(record))
+
+    assert entry["level"] == "WARNING"
+    assert entry["message"] == "warning"
+    assert entry["event"] == "setup.warning"
 
 
 def test_product_ui_includes_price_floor_and_publish_action():
@@ -537,6 +671,16 @@ def test_republishing_existing_marketplace_item_does_not_reset_stock(
     )
 
     with Session(database) as db:
+        db.add(
+            MarketplaceCredentialRecord(
+                workspace_id="default",
+                provider="mercadolivre",
+                account_id="seller-123",
+                access_token_encrypted="unused",
+                refresh_token_encrypted="unused",
+                expires_at=datetime.now(timezone.utc),
+            )
+        )
         product = db.scalar(
             select(ProductRecord).where(ProductRecord.product_uuid == product_id)
         )
@@ -561,6 +705,123 @@ def test_republishing_existing_marketplace_item_does_not_reset_stock(
     )
     assert "available_quantity" not in update_request[2]["json"]
     assert (product_dir / "product.yaml").is_file()
+
+
+def test_publish_connection_error_auto_reconciles_exact_product_uuid(
+    product_api, monkeypatch
+):
+    _, database, _, _, product_id = product_api
+    monkeypatch.setenv("MELI_CATEGORY_ID", "MLB123")
+    monkeypatch.setenv("MELI_LISTING_TYPE_ID", "gold_special")
+    requests = []
+
+    async def fake_access_token(db, workspace_id):
+        return "test-access-token"
+
+    async def fake_rate_limited_request(client, method, url, **kwargs):
+        requests.append((method, url, kwargs))
+        if url.endswith("/pictures/items/upload"):
+            body = {"id": "uploaded-picture"}
+        elif method == "POST" and url.endswith("/items"):
+            raise httpx.ConnectError("connection dropped")
+        elif "/users/seller-123/items/search" in url:
+            body = {"results": [{"id": "MLB-123"}]}
+        elif url.endswith("/items/MLB-123"):
+            body = {
+                "id": "MLB-123",
+                "seller_custom_field": product_id,
+                "permalink": "https://example.test/MLB-123",
+            }
+        else:
+            raise AssertionError(f"Unexpected request: {method} {url}")
+        return SimpleNamespace(is_error=False, status_code=200, json=lambda: body)
+
+    monkeypatch.setattr("backend_core.marketplaces._access_token", fake_access_token)
+    monkeypatch.setattr(
+        "backend_core.marketplaces._rate_limited_request", fake_rate_limited_request
+    )
+
+    with Session(database) as db:
+        db.add(
+            MarketplaceCredentialRecord(
+                workspace_id="default",
+                provider="mercadolivre",
+                account_id="seller-123",
+                access_token_encrypted="unused",
+                refresh_token_encrypted="unused",
+                expires_at=datetime.now(timezone.utc),
+            )
+        )
+        product = db.scalar(
+            select(ProductRecord).where(ProductRecord.product_uuid == product_id)
+        )
+        product.price = Decimal("25.00")
+        product.price_floor = Decimal("10.00")
+        product.condition = "new"
+        product.marketplaces = {
+            "mercadolivre": {"enabled": True, "category_id": "MLB123"}
+        }
+        db.commit()
+
+        result = asyncio.run(publish_product(db, product, "default"))
+
+    assert result["item_id"] == "MLB-123"
+    create_request = next(
+        request
+        for request in requests
+        if request[0] == "POST" and request[1].endswith("/items")
+    )
+    assert create_request[2]["json"]["seller_custom_field"] == product_id
+
+
+def test_publish_connection_error_without_exact_match_stays_manual(
+    product_api, monkeypatch
+):
+    _, database, _, _, product_id = product_api
+    monkeypatch.setenv("MELI_CATEGORY_ID", "MLB123")
+    monkeypatch.setenv("MELI_LISTING_TYPE_ID", "gold_special")
+
+    async def fake_access_token(db, workspace_id):
+        return "test-access-token"
+
+    async def fake_rate_limited_request(client, method, url, **kwargs):
+        if url.endswith("/pictures/items/upload"):
+            body = {"id": "uploaded-picture"}
+        elif method == "POST" and url.endswith("/items"):
+            raise httpx.ConnectError("connection dropped")
+        else:
+            body = {"results": []}
+        return SimpleNamespace(is_error=False, status_code=200, json=lambda: body)
+
+    monkeypatch.setattr("backend_core.marketplaces._access_token", fake_access_token)
+    monkeypatch.setattr(
+        "backend_core.marketplaces._rate_limited_request", fake_rate_limited_request
+    )
+
+    with Session(database) as db:
+        db.add(
+            MarketplaceCredentialRecord(
+                workspace_id="default",
+                provider="mercadolivre",
+                account_id="seller-123",
+                access_token_encrypted="unused",
+                refresh_token_encrypted="unused",
+                expires_at=datetime.now(timezone.utc),
+            )
+        )
+        product = db.scalar(
+            select(ProductRecord).where(ProductRecord.product_uuid == product_id)
+        )
+        product.price = Decimal("25.00")
+        product.price_floor = Decimal("10.00")
+        product.condition = "new"
+        product.marketplaces = {
+            "mercadolivre": {"enabled": True, "category_id": "MLB123"}
+        }
+        db.commit()
+
+        with pytest.raises(MarketplaceOutcomeUnknown):
+            asyncio.run(publish_product(db, product, "default"))
 
 
 def test_local_picker_token_is_not_cacheable(monkeypatch):
@@ -780,6 +1041,32 @@ def test_empty_root_does_not_delete_existing_catalog(tmp_path):
     database.dispose()
 
 
+def test_force_cleanup_removes_catalog_rows_from_empty_root(tmp_path):
+    database = create_engine(f"sqlite:///{tmp_path / 'force-cleanup.db'}")
+    Base.metadata.create_all(database)
+    root = tmp_path / "Products"
+    product_dir = root / "Product"
+    product_dir.mkdir(parents=True)
+    product_id = "0197f381-7c63-7a1d-a8b1-4e08b8472488"
+    (product_dir / "product.yaml").write_text(
+        f"schema_version: 2\nid: {product_id}\ntitle: Product\n",
+        encoding="utf-8",
+    )
+
+    with Session(database) as db:
+        _sync_product_catalog(db, root)
+        (product_dir / "product.yaml").unlink()
+        product_dir.rmdir()
+        _sync_product_catalog(db, root)
+        assert db.scalar(select(ProductRecord)) is not None
+
+        assert _sync_product_catalog_for_roots(
+            db, (root,), force_cleanup=True
+        ) == []
+        assert db.scalar(select(ProductRecord)) is None
+    database.dispose()
+
+
 def test_saved_missing_root_is_restored_and_allowlist_is_enforced(
     tmp_path, monkeypatch
 ):
@@ -801,7 +1088,7 @@ def test_saved_missing_root_is_restored_and_allowlist_is_enforced(
         )
         db.commit()
 
-        restore_saved_product_roots(db)
+        assert restore_saved_product_roots(db) is None
         assert runtime.PRODUCT_ROOTS == (saved_root.resolve(),)
         assert not saved_root.exists()
 
@@ -809,8 +1096,9 @@ def test_saved_missing_root_is_restored_and_allowlist_is_enforced(
             [str(tmp_path / "outside" / "Products")]
         )
         db.commit()
-        with pytest.raises(RuntimeError, match="Não foi possível restaurar"):
-            restore_saved_product_roots(db)
+        warning = restore_saved_product_roots(db)
+        assert warning and "Selecione novamente" in warning
+        assert runtime.PRODUCT_ROOTS == (saved_root.resolve(),)
     database.dispose()
 
 

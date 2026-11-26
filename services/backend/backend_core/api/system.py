@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -32,7 +32,9 @@ def health_check(response: Response, db: Session = Depends(get_db)):
 
 
 @router.get("/")
-def read_root(db: Session = Depends(get_db)):
+def read_root(request: Request, db: Session = Depends(get_db)):
+    if getattr(request.app.state, "setup_warning", None):
+        return FileResponse(runtime.SETUP_PAGE, media_type="text/html")
     setup_complete = db.get(AppSettingRecord, SETUP_COMPLETE_SETTING)
     has_products = db.scalar(select(ProductRecord.id).limit(1)) is not None
     if not has_products and not (setup_complete and setup_complete.value == "true"):

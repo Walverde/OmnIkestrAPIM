@@ -65,7 +65,11 @@ class DebouncedProductNotifier:
 
     def _is_ignored_path(self, path: str) -> bool:
         candidate = Path(path)
-        if any(part.startswith("_") for part in candidate.parts):
+        try:
+            relative_path = candidate.resolve().relative_to(self.watch_directory)
+        except ValueError:
+            relative_path = Path(candidate.name)
+        if any(part.startswith("_") for part in relative_path.parts):
             return True
         patterns = IGNORE_PATTERNS
         extra_patterns = os.getenv("WATCH_IGNORE_PATTERNS", "")

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import runtime
 from ..catalog import (
+    _ensure_product_uuid_unique,
     _scan_product,
     _serialize_product,
     _sync_product_catalog_for_roots,
@@ -135,15 +136,47 @@ def list_products(
 @router.post("/api/products/scan")
 def scan_products(
     workspace_id: str = Query(DEFAULT_WORKSPACE_ID, min_length=1, max_length=64),
+    force_cleanup: bool = Query(default=False),
     db: Session = Depends(get_db),
     _: None = Depends(require_api_key),
 ):
+    if force_cleanup and not runtime.PRODUCT_ROOTS:
+        raise HTTPException(
+            status_code=400,
+            detail="Configure ao menos uma raiz de produtos antes da limpeza forçada.",
+        )
+    previous_ids = (
+        set(
+            db.scalars(
+                select(ProductRecord.id).where(
+                    ProductRecord.workspace_id == workspace_id
+                )
+            ).all()
+        )
+        if force_cleanup
+        else set()
+    )
     products = _sync_product_catalog_for_roots(
-        db, runtime.PRODUCT_ROOTS, workspace_id
+        db, runtime.PRODUCT_ROOTS, workspace_id, force_cleanup=force_cleanup
+    )
+    current_ids = (
+        set(
+            db.scalars(
+                select(ProductRecord.id).where(
+                    ProductRecord.workspace_id == workspace_id
+                )
+            ).all()
+        )
+        if force_cleanup
+        else set()
     )
     return {
         "products": [product.model_dump() for product in products],
         "roots": [root.as_posix() for root in runtime.PRODUCT_ROOTS],
+        "force_cleanup": force_cleanup,
+        "removed_records": len(previous_ids - current_ids)
+        if force_cleanup
+        else 0,
     }
 
 
@@ -262,6 +295,7 @@ def patch_product_detail(
     scanned_product = _scan_product(
         product_root.resolve(), Path(product.path), preferred_id=str(product.product_uuid)
     )
+    _ensure_product_uuid_unique(db, scanned_product, workspace_id)
     _upsert_product_record(db, scanned_product, workspace_id)
     db.commit()
     db.refresh(product)

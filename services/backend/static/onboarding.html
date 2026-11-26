@@ -59,6 +59,8 @@
     #status { min-height: 24px; color: #687870; }
     #status[data-error="true"] { color: #9a3e32; }
     .note { color: #687870; font-size: 13px; line-height: 1.5; }
+    #setup-warning { padding: 14px; color: #702d20; background: #fff0e8; border: 1px solid #e6b39e; line-height: 1.5; }
+    #setup-warning[hidden] { display: none; }
     @media (max-width: 540px) {
       main { margin: 32px auto; }
       .panel { padding: 18px; }
@@ -72,6 +74,7 @@
     <p style="color:#bd644a;font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;">Primeiros passos</p>
     <h1>Onde estão seus produtos?</h1>
     <p class="intro">Escolha a pasta que contém os diretórios dos produtos. No TrueNAS, ela precisa estar montada no aplicativo antes de aparecer aqui.</p>
+    <p id="setup-warning" role="alert" hidden></p>
     <section class="panel" aria-label="Selecionar pasta de produtos">
       <h2>Pastas disponíveis</h2>
       <p class="path" id="current-path">Carregando pastas...</p>
@@ -94,6 +97,7 @@
     const selectButton = document.querySelector("#select-button");
     const newFolderName = document.querySelector("#new-folder-name");
     const status = document.querySelector("#status");
+    const setupWarning = document.querySelector("#setup-warning");
     let activePath = null;
     let parentPath = null;
 
@@ -206,7 +210,13 @@
     async function initialize() {
       try {
         const setup = await requestJson("/api/setup/status");
-        const startingPath = setup.selected_root || setup.available_roots[0] || null;
+        if (setup.warning) {
+          setupWarning.textContent = setup.warning;
+          setupWarning.hidden = false;
+        }
+        const startingPath = setup.warning
+          ? setup.available_roots[0] || null
+          : setup.selected_root || setup.available_roots[0] || null;
         await browse(startingPath);
       } catch (error) {
         showStatus(error.message, true);

@@ -96,6 +96,49 @@ def get_marketplace_connector(provider: str) -> MarketplaceConnector:
         ) from error
 
 
+async def _find_item_by_seller_custom_field(
+    client: httpx.AsyncClient,
+    account_id: str,
+    marker: str,
+    headers: dict[str, str],
+) -> dict | None:
+    try:
+        search_response = await _rate_limited_request(
+            client,
+            "GET",
+            f"{API_URL}/users/{account_id}/items/search",
+            params={"seller_custom_field": marker},
+            headers=headers,
+        )
+        if search_response.is_error:
+            return None
+        search_result = search_response.json()
+        results = search_result.get("results") if isinstance(search_result, dict) else None
+        if not isinstance(results, list) or len(results) != 1:
+            return None
+        item_id = results[0].get("id") if isinstance(results[0], dict) else results[0]
+        if not isinstance(item_id, (str, int)) or not str(item_id):
+            return None
+
+        item_response = await _rate_limited_request(
+            client,
+            "GET",
+            f"{API_URL}/items/{item_id}",
+            headers=headers,
+        )
+        if item_response.is_error:
+            return None
+        item = item_response.json()
+        if (
+            isinstance(item, dict)
+            and str(item.get("seller_custom_field") or "") == marker
+        ):
+            return item
+    except (httpx.RequestError, ValueError):
+        return None
+    return None
+
+
 def _read_setting(name: str) -> str:
     file_name = os.getenv(f"{name}_FILE")
     if file_name:
@@ -390,6 +433,14 @@ async def publish_product(
             "MELI_AVAILABLE_QUANTITY deve ser positivo."
         )
 
+    credential = db.scalar(
+        select(MarketplaceCredentialRecord).where(
+            MarketplaceCredentialRecord.workspace_id == workspace_id,
+            MarketplaceCredentialRecord.provider == PROVIDER,
+        )
+    )
+    if credential is None:
+        raise MarketplaceConfigurationError("A conta do Mercado Livre não está vinculada.")
     token = await _access_token(db, workspace_id)
     product_path = Path(product.path).resolve()
     pictures: list[dict[str, str]] = []
@@ -446,6 +497,7 @@ async def publish_product(
         "listing_type_id": listing_type_id,
         "condition": condition,
         "pictures": pictures,
+        "seller_custom_field": product.product_uuid,
     }
     update_payload = {
         key: payload[key]
@@ -472,6 +524,7 @@ async def publish_product(
         raise MarketplaceConfigurationError("A configuração Mercado Livre do manifesto é inválida.")
 
     async with httpx.AsyncClient(timeout=30) as client:
+        item_data = None
         if existing_item_id:
             response = await _rate_limited_request(
                 client,
@@ -486,11 +539,18 @@ async def publish_product(
                     client, "POST", f"{API_URL}/items", json=payload, headers=headers
                 )
             except httpx.RequestError as error:
-                raise MarketplaceOutcomeUnknown(
-                    "A conexão foi interrompida durante a criação do anúncio; "
-                    "confirme no Mercado Livre antes de tentar novamente."
-                ) from error
-    if response.is_error:
+                item_data = await _find_item_by_seller_custom_field(
+                    client,
+                    credential.account_id,
+                    product.product_uuid,
+                    headers,
+                )
+                if item_data is None:
+                    raise MarketplaceOutcomeUnknown(
+                        "A conexão foi interrompida durante a criação e não foi possível "
+                        "confirmar um anúncio pelo UUID do produto; reconcilie antes de tentar novamente."
+                    ) from error
+    if item_data is None and response.is_error:
         if not existing_item_id and response.status_code >= 500:
             raise MarketplaceOutcomeUnknown(
                 "O Mercado Livre retornou um erro após receber a solicitação de criação; "
@@ -500,17 +560,18 @@ async def publish_product(
             f"O Mercado Livre recusou o anúncio (HTTP {response.status_code}).",
             retryable=response.status_code == 429 or response.status_code >= 500,
         )
-    try:
-        item_data = response.json()
-    except ValueError as error:
-        if not existing_item_id:
-            raise MarketplaceOutcomeUnknown(
-                "A resposta de criação do anúncio era inválida; "
-                "confirme no Mercado Livre antes de tentar novamente."
+    if item_data is None:
+        try:
+            item_data = response.json()
+        except ValueError as error:
+            if not existing_item_id:
+                raise MarketplaceOutcomeUnknown(
+                    "A resposta de criação do anúncio era inválida; "
+                    "confirme no Mercado Livre antes de tentar novamente."
+                ) from error
+            raise MarketplaceRequestError(
+                "O Mercado Livre retornou uma resposta inválida ao processar o anúncio."
             ) from error
-        raise MarketplaceRequestError(
-            "O Mercado Livre retornou uma resposta inválida ao processar o anúncio."
-        ) from error
     if not isinstance(item_data, dict):
         if not existing_item_id:
             raise MarketplaceOutcomeUnknown(

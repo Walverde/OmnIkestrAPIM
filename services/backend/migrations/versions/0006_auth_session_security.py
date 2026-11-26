@@ -15,7 +15,7 @@ def upgrade():
         op.create_table(
             "auth_sessions",
             sa.Column("session_id", sa.String(length=64), primary_key=True),
-            sa.Column("expires_at", sa.Integer(), nullable=False),
+            sa.Column("expires_at", sa.BigInteger(), nullable=False),
         )
     indexes = {
         index["name"] for index in inspect(op.get_bind()).get_indexes("auth_sessions")
@@ -33,7 +33,7 @@ def upgrade():
             "login_attempts",
             sa.Column("id", sa.Integer(), primary_key=True),
             sa.Column("client_key", sa.String(length=64), nullable=False),
-            sa.Column("attempted_at", sa.Integer(), nullable=False),
+            sa.Column("attempted_at", sa.BigInteger(), nullable=False),
         )
     indexes = {
         index["name"] for index in inspect(op.get_bind()).get_indexes("login_attempts")

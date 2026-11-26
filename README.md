@@ -26,7 +26,15 @@ export PRODUCT_ROOTS=/data/products,/mnt/nas/products
 export WATCH_DIRS=/data/products,/mnt/nas/products
 export PUID=1000
 export PGID=1000
+export UVICORN_PROXY_HEADERS=true
+export FORWARDED_ALLOW_IPS=172.20.0.5
 ```
+
+For deployments behind a reverse proxy, set `FORWARDED_ALLOW_IPS` to the proxy
+source IP(s) or trusted network in the container network. Keep it restricted to
+trusted proxies; do not use `*` on an exposed deployment. `UVICORN_PROXY_HEADERS`
+can be set to `false` to ignore forwarded headers. The backend uses these
+settings in both Compose deployments.
 
 After startup, sign in at [http://localhost:8000/login](http://localhost:8000/login) using `OMNIKESTRAPIM_ADMIN_PASSWORD` from the generated `.env`; then visit [http://localhost:8000/settings](http://localhost:8000/settings) to review the indexed catalog. The development stack mounts product files into the backend and watcher containers.
 
@@ -34,16 +42,20 @@ The API indexes product folders and their files in PostgreSQL. Available routes 
 
 * `GET /api/products` — list the indexed catalog.
 * `POST /api/products/scan` — rescan the selected directory and reconcile the index.
+* `POST /api/products/scan?force_cleanup=true` — explicitly remove stale index rows when product roots are intentionally empty. This never deletes product files; the dashboard asks for confirmation.
 * `GET /api/products/events` — read persisted watcher events.
 * `GET /api/health` — check API availability.
+* `GET /metrics` — Prometheus metrics, available without browser login.
 
 Product event history and the catalog index are stored in PostgreSQL's persistent `postgres_data` volume. The backend applies Alembic migrations at startup. The default database credentials are for local development only; set `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD` in the environment before deployment.
 
 The application requires all three security values at startup: `OMNIKESTRAPIM_ADMIN_PASSWORD` (at least 12 characters) for the administrator login, `OMNIKESTRAPIM_SESSION_SECRET` (at least 32 characters) for signed, eight-hour `HttpOnly`/`SameSite=Strict` sessions, and `OMNIKESTRAPIM_API_KEY` (at least 32 characters) for the watcher service. Sessions are tracked server-side and revoked on logout; login is rate-limited to five failed attempts per client address in a 15-minute window. The Linux setup script and Windows `start-local.ps1` generate these values in `.env`; retrieve the initial admin password from that file. Browser API access requires a logged-in session, while the API key is accepted for watcher event ingestion and periodic catalog reconciliation. The current single-admin authorization is limited to the `default` workspace; other workspace IDs are rejected rather than trusted from request parameters. Missing security configuration prevents backend startup.
 
-For production, set `OMNIKESTRAPIM_COOKIE_SECURE=true` and serve the application over HTTPS. The development setup opts out of the Secure-cookie flag for local HTTP use. Do not expose the application to the internet without HTTPS and a reviewed deployment configuration. The Windows folder picker requires Docker Desktop and PowerShell on the host; the development setup is intended for local use.
+For production, set `OMNIKESTRAPIM_COOKIE_SECURE=true` and serve the application over HTTPS. The development setup opts out of the Secure-cookie flag for local HTTP use. Do not expose the application to the internet without HTTPS and a reviewed deployment configuration. If saved product roots no longer match the configured allowlist, the backend starts in setup mode, displays a warning, and skips startup reconciliation until a permitted root is selected. The Windows folder picker requires Docker Desktop and PowerShell on the host; the development setup is intended for local use.
 
-Publishing can return `reconciliation_required` when the remote result is ambiguous (including a worker restart during listing creation). Automatic retries are stopped to avoid duplicate listings. Check the Mercado Livre account, then call `POST /api/marketplaces/jobs/{job_id}/reconcile` with either `{"item_id":"<ID externo>"}` to link the found listing or `{"confirmed_not_published":true}` only after verifying no listing was created.
+New Mercado Livre listings include the product UUID as `seller_custom_field`. If the connection drops during `POST /items`, the backend looks for exactly one listing with that marker and verifies the returned item before linking it. Missing, multiple, or unverifiable matches remain `reconciliation_required`; automatic retries are stopped to avoid duplicate listings. Worker restarts with no known remote ID also require manual reconciliation. Check the Mercado Livre account, then call `POST /api/marketplaces/jobs/{job_id}/reconcile` with either `{"item_id":"<ID externo>"}` to link the found listing or `{"confirmed_not_published":true}` only after verifying no listing was created.
+
+The backend writes application logs as JSON to stdout. Migration `0006_auth_session_security` uses 64-bit integer columns for session and login-attempt epochs.
 
 ## TrueNAS SCALE
 

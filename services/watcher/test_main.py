@@ -119,6 +119,21 @@ class DebouncedProductNotifierTests(unittest.TestCase):
 
         self.assertEqual(len(self.notifier._pending), 0)
 
+    def test_underscored_watch_root_does_not_ignore_every_absolute_path(self):
+        watch_directory = self.watch_directory / "_products"
+        watch_directory.mkdir()
+        notifier = DebouncedProductNotifier(
+            str(watch_directory),
+            "http://backend",
+            debounce_seconds=60,
+            post=self.post,
+        )
+
+        notifier.submit("created", str(watch_directory / "Chair" / "cover.jpg"), False)
+        notifier.flush_all()
+
+        self.post.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

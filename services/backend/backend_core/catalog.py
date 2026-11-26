@@ -443,6 +443,54 @@ def _upsert_product_record(
     return record
 
 
+def _assign_new_product_uuid(product: ProductSummary) -> None:
+    new_id = str(uuid4())
+    product.id = new_id
+    manifest = dict(product.manifest or {})
+    manifest["id"] = new_id
+    marketplaces = manifest.get("marketplaces")
+    if isinstance(marketplaces, dict):
+        for config in marketplaces.values():
+            if isinstance(config, dict):
+                config.pop("item_id", None)
+                config.pop("permalink", None)
+    if manifest.get("status") == "published":
+        manifest["status"] = "pending"
+        product.status = "pending"
+    product.manifest = manifest
+    product.marketplaces = marketplaces if isinstance(marketplaces, dict) else {}
+    manifest_path = Path(product.path) / "product.yaml"
+    if not manifest_path.is_file():
+        manifest_path = Path(product.path) / "product.yml"
+    if manifest_path.is_file():
+        try:
+            _write_manifest_atomic(manifest_path, manifest)
+        except OSError:
+            product.manifest_error = "Não foi possível gerar um UUID único para a cópia."
+
+
+def _ensure_product_uuid_unique(
+    db: Session,
+    product: ProductSummary,
+    workspace_id: str,
+    allowed_record_id: int | None = None,
+) -> None:
+    if not product.id:
+        return
+    storage_path = _storage_path(product.path)
+    matching_records = db.scalars(
+        select(ProductRecord).where(
+            ProductRecord.workspace_id == workspace_id,
+            ProductRecord.product_uuid == product.id,
+        )
+    ).all()
+    if any(
+        record.path != storage_path and record.id != allowed_record_id
+        for record in matching_records
+    ):
+        _assign_new_product_uuid(product)
+
+
 def _root_for_path(path: str | Path | None, roots: tuple[Path, ...]) -> Path | None:
     if path is None:
         return None
@@ -460,8 +508,11 @@ def _sync_product_catalog_for_roots(
     db: Session,
     roots: tuple[Path, ...] | list[Path] | None,
     workspace_id: str = DEFAULT_WORKSPACE_ID,
+    force_cleanup: bool = False,
 ) -> List[ProductSummary]:
     normalized_roots = tuple(Path(root).expanduser().resolve() for root in (roots or ()))
+    if force_cleanup and not normalized_roots:
+        raise ValueError("A limpeza forçada requer ao menos uma raiz de produtos.")
     _ensure_workspace(db, workspace_id)
     existing_records = db.scalars(
         select(ProductRecord).where(ProductRecord.workspace_id == workspace_id)
@@ -484,7 +535,7 @@ def _sync_product_catalog_for_roots(
             unavailable_roots.append(root)
             continue
         discovered = _scan_products(root, preferred_ids)
-        if not discovered and any(
+        if not force_cleanup and not discovered and any(
             Path(record.path).expanduser().resolve().is_relative_to(root)
             for record in existing_records
         ):
@@ -521,31 +572,7 @@ def _sync_product_catalog_for_roots(
             and product_id in seen_uuids
             and seen_uuids[product_id] != product_path
         ):
-            new_id = str(uuid4())
-            product.id = new_id
-            manifest = dict(product.manifest or {})
-            manifest["id"] = new_id
-            marketplaces = manifest.get("marketplaces")
-            if isinstance(marketplaces, dict):
-                for config in marketplaces.values():
-                    if isinstance(config, dict):
-                        config.pop("item_id", None)
-                        config.pop("permalink", None)
-            if manifest.get("status") == "published":
-                manifest["status"] = "pending"
-                product.status = "pending"
-            product.manifest = manifest
-            product.marketplaces = marketplaces if isinstance(marketplaces, dict) else {}
-            manifest_path = Path(product.path) / "product.yaml"
-            if not manifest_path.is_file():
-                manifest_path = Path(product.path) / "product.yml"
-            if manifest_path.is_file():
-                try:
-                    _write_manifest_atomic(manifest_path, manifest)
-                except OSError:
-                    product.manifest_error = (
-                        "Não foi possível gerar um UUID único para a cópia."
-                    )
+            _assign_new_product_uuid(product)
         elif product_id:
             seen_uuids.setdefault(product_id, product_path)
         _upsert_product_record(db, product, workspace_id)
@@ -672,6 +699,12 @@ def _sync_product_for_event(
                 else None
             )
             product = _scan_product(root.resolve(), product_dir, preferred_id)
+            _ensure_product_uuid_unique(
+                db,
+                product,
+                event.workspace_id,
+                allowed_record_id=source_record.id if source_record else None,
+            )
             _upsert_product_record(db, product, event.workspace_id)
             indexed.append(product)
         else:

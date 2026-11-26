@@ -2,7 +2,7 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -45,10 +45,10 @@ def _validated_saved_root(raw_root: str) -> Path:
     raise ValueError(f"A pasta salva não está dentro de um volume permitido: {candidate}")
 
 
-def restore_saved_product_roots(db: Session) -> None:
+def restore_saved_product_roots(db: Session) -> str | None:
     saved_roots = db.get(AppSettingRecord, PRODUCT_ROOTS_SETTING)
     if saved_roots is None:
-        return
+        return None
     try:
         configured_roots = json.loads(saved_roots.value)
         if not isinstance(configured_roots, list) or not configured_roots:
@@ -59,18 +59,21 @@ def restore_saved_product_roots(db: Session) -> None:
         if not roots:
             raise ValueError("Nenhuma raiz salva está montada.")
     except (OSError, RuntimeError, json.JSONDecodeError, TypeError, ValueError) as error:
-        raise RuntimeError(
+        return (
             "Não foi possível restaurar as pastas de produtos salvas. "
-            "Verifique a configuração das pastas e se os volumes permitidos estão configurados."
-        ) from error
+            "Selecione novamente uma pasta dentro de um volume permitido. "
+            f"Detalhes: {error}"
+        )
     runtime.apply_product_roots(tuple(dict.fromkeys(roots)))
+    return None
 
 
 @router.get("/api/config/product-roots")
-def get_product_roots(db: Session = Depends(get_db)):
+def get_product_roots(request: Request, db: Session = Depends(get_db)):
     saved_roots = db.get(AppSettingRecord, PRODUCT_ROOTS_SETTING)
     roots = runtime.PRODUCT_ROOTS
-    if saved_roots:
+    warning = getattr(request.app.state, "setup_warning", None)
+    if saved_roots and not warning:
         try:
             configured_roots = json.loads(saved_roots.value)
             if not isinstance(configured_roots, list) or not configured_roots:
@@ -86,7 +89,7 @@ def get_product_roots(db: Session = Depends(get_db)):
         "roots": [root.as_posix() for root in roots],
         "default_root": roots[0].as_posix(),
         "source": "database"
-        if saved_roots
+        if saved_roots and not warning
         else "environment"
         if os.getenv("PRODUCT_ROOTS") or os.getenv("PRODUCTS_ROOT")
         else "runtime",
@@ -96,6 +99,7 @@ def get_product_roots(db: Session = Depends(get_db)):
 @router.post("/api/config/product-roots")
 def set_product_roots(
     config: ProductRootConfig,
+    request: Request,
     db: Session = Depends(get_db),
     _: None = Depends(require_api_key),
 ):
@@ -120,6 +124,7 @@ def set_product_roots(
         complete_setting.value = "true"
     db.commit()
     runtime.apply_product_roots(updated_roots)
+    request.app.state.setup_warning = None
     return {
         "roots": [root.as_posix() for root in updated_roots],
         "default_root": updated_roots[0].as_posix(),
@@ -127,12 +132,17 @@ def set_product_roots(
 
 
 @router.get("/api/setup/status")
-def get_setup_status(db: Session = Depends(get_db)):
+def get_setup_status(request: Request, db: Session = Depends(get_db)):
     completion = db.get(AppSettingRecord, SETUP_COMPLETE_SETTING)
     has_products = db.scalar(select(ProductRecord.id).limit(1)) is not None
+    warning = getattr(request.app.state, "setup_warning", None)
     return {
-        "completed": bool(completion and completion.value == "true") or has_products,
+        "completed": (
+            not warning
+            and (bool(completion and completion.value == "true") or has_products)
+        ),
         "selected_root": runtime.PRODUCTS_ROOT.as_posix(),
+        "warning": warning,
         "available_roots": [
             root.as_posix()
             for root in runtime.ALLOWED_PRODUCT_ROOTS

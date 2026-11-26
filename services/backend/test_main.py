@@ -1,15 +1,21 @@
+import asyncio
+import json
 import os
-from pathlib import Path
+from decimal import Decimal
 from io import BytesIO
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 import yaml
-from PIL import Image
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.exc import IntegrityError
+from PIL import Image
+from sqlalchemy import create_engine, delete, select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 os.environ["OMNIKESTRAPIM_API_KEY"] = "test-api-key-for-tests-1234567890-abcd"
@@ -18,10 +24,21 @@ os.environ["OMNIKESTRAPIM_SESSION_SECRET"] = "test-session-secret-with-sufficien
 os.environ["OMNIKESTRAPIM_COOKIE_SECURE"] = "false"
 
 from app import app
-from backend_core.api.dependencies import get_db
+from backend_core.api.auth import is_valid_session
+from backend_core.api.config import restore_saved_product_roots
+from backend_core.api.dependencies import get_db, require_api_key
+from backend_core import runtime
 from backend_core.database import Base, engine
-from backend_core.marketplace_worker import _mark_reconciliation_required
+from backend_core.marketplace_worker import (
+    _mark_reconciliation_required,
+    _run_job,
+    run_marketplace_worker,
+)
+from backend_core.marketplaces import publish_product
 from backend_core.models import (
+    AppSettingRecord,
+    AuthSessionRecord,
+    LoginAttemptRecord,
     MarketplaceJobRecord,
     ProductEvent,
     ProductEventRecord,
@@ -227,10 +244,24 @@ def test_sync_product_catalog_persists_and_removes_products(tmp_path):
         assert stored.has_manifest is True
         assert stored.files[0]["name"] == "product.yaml"
 
+        other_product = tmp_path / "Other product"
+        other_product.mkdir()
+        (other_product / "product.yaml").write_text(
+            "schema_version: 2\nid: 0197f381-7c63-7a1d-a8b1-4e08b8472482\n"
+            "title: Other product\n",
+            encoding="utf-8",
+        )
+        _sync_product_catalog(session, tmp_path)
+
         manifest.unlink()
         product_dir.rmdir()
         _sync_product_catalog(session, tmp_path)
-        assert session.scalar(select(ProductRecord)) is None
+        assert session.scalar(
+            select(ProductRecord).where(ProductRecord.path == str(product_dir))
+        ) is None
+        assert session.scalar(
+            select(ProductRecord).where(ProductRecord.path == str(other_product))
+        ) is not None
 
     database.dispose()
 
@@ -475,6 +506,63 @@ def test_product_patch_merges_marketplace_metadata(product_api):
     }
 
 
+def test_republishing_existing_marketplace_item_does_not_reset_stock(
+    product_api, monkeypatch
+):
+    _, database, _, product_dir, product_id = product_api
+    monkeypatch.setenv("MELI_AVAILABLE_QUANTITY", "1")
+    monkeypatch.setenv("MELI_CATEGORY_ID", "MLB123")
+    monkeypatch.setenv("MELI_LISTING_TYPE_ID", "gold_special")
+    requests = []
+
+    async def fake_access_token(db, workspace_id):
+        return "test-access-token"
+
+    async def fake_rate_limited_request(client, method, url, **kwargs):
+        requests.append((method, url, kwargs))
+        body = (
+            {"id": "uploaded-picture"}
+            if url.endswith("/pictures/items/upload")
+            else {"id": "MLB-123", "permalink": "https://example.test/item"}
+        )
+        return SimpleNamespace(
+            is_error=False,
+            status_code=200,
+            json=lambda: body,
+        )
+
+    monkeypatch.setattr("backend_core.marketplaces._access_token", fake_access_token)
+    monkeypatch.setattr(
+        "backend_core.marketplaces._rate_limited_request", fake_rate_limited_request
+    )
+
+    with Session(database) as db:
+        product = db.scalar(
+            select(ProductRecord).where(ProductRecord.product_uuid == product_id)
+        )
+        product.price = Decimal("25.00")
+        product.price_floor = Decimal("10.00")
+        product.condition = "new"
+        product.marketplaces = {
+            "mercadolivre": {
+                "enabled": True,
+                "category_id": "MLB123",
+                "item_id": "MLB-123",
+            }
+        }
+        db.commit()
+
+        asyncio.run(publish_product(db, product, "default"))
+
+    update_request = next(
+        request
+        for request in requests
+        if request[0] == "PUT" and request[1].endswith("/items/MLB-123")
+    )
+    assert "available_quantity" not in update_request[2]["json"]
+    assert (product_dir / "product.yaml").is_file()
+
+
 def test_local_picker_token_is_not_cacheable(monkeypatch):
     monkeypatch.setattr("backend_core.runtime.PICKER_TOKEN", "test-local-picker-token")
     response = _login(TestClient(app)).get("/api/local/picker-token")
@@ -503,8 +591,43 @@ def test_mutating_route_requires_api_key(monkeypatch, product_api):
     assert authorized.status_code == 200
     assert client.post(
         "/api/products/scan",
-        headers={"X-API-Key": "test-api-key-for-tests-1234567890-abcd"},
     ).status_code == 401
+    assert client.post(
+        "/api/products/scan",
+        headers={"X-API-Key": "test-api-key-for-tests-1234567890-abcd"},
+    ).status_code == 200
+
+
+def test_non_ascii_auth_values_are_rejected_without_type_error():
+    client = TestClient(app)
+    assert client.post(
+        "/api/auth/login",
+        json={"password": "senha-inválida"},
+    ).status_code == 401
+    assert client.post(
+        "/api/products/watch",
+        headers=[(b"X-API-Key", b"chave-\xff")],
+        json={"event": "modified", "path": "/tmp/not-a-product"},
+    ).status_code == 401
+    assert client.get(
+        "/api/products",
+        headers=[(b"Cookie", b"omnikestr_session=9999999999.assinatura-\xff")],
+    ).status_code == 401
+
+    request = Request({
+        "type": "http",
+        "headers": [
+            (
+                b"cookie",
+                "omnikestr_session=9999999999.assinatura-é".encode("latin-1"),
+            )
+        ],
+    })
+    assert not is_valid_session(request)
+
+    with pytest.raises(HTTPException) as error:
+        require_api_key(Request({"type": "http", "headers": []}), "chave-inválida")
+    assert error.value.status_code == 401
 
 
 def test_watcher_cannot_choose_another_workspace(product_api):
@@ -552,6 +675,48 @@ def test_duplicate_manifest_uuid_creates_unique_copy(tmp_path):
     database.dispose()
 
 
+def test_duplicate_uuid_keeps_database_identity_and_unlinks_copy(tmp_path):
+    database = create_engine(f"sqlite:///{tmp_path / 'duplicate-owner.db'}")
+    Base.metadata.create_all(database)
+    root = tmp_path / "Products"
+    original = root / "Z-Original"
+    copy = root / "A-Copy"
+    original.mkdir(parents=True)
+    shared_id = "0197f381-7c63-7a1d-a8b1-4e08b8472499"
+    (original / "product.yaml").write_text(
+        f"schema_version: 2\nid: {shared_id}\ntitle: Original\n",
+        encoding="utf-8",
+    )
+
+    with Session(database) as db:
+        _sync_product_catalog(db, root)
+        copy.mkdir()
+        (copy / "product.yaml").write_text(
+            f"schema_version: 2\nid: {shared_id}\ntitle: Copy\n"
+            "status: published\n"
+            "marketplaces:\n"
+            "  mercadolivre:\n"
+            "    enabled: true\n"
+            "    item_id: MLB-ORIGINAL\n"
+            "    permalink: https://example.test/original\n",
+            encoding="utf-8",
+        )
+
+        products = _sync_product_catalog(db, root)
+
+        original_product = next(item for item in products if item.path == str(original))
+        copy_product = next(item for item in products if item.path == str(copy))
+        copy_manifest = yaml.safe_load(
+            (copy / "product.yaml").read_text(encoding="utf-8")
+        )
+        assert original_product.id == shared_id
+        assert copy_product.id != shared_id
+        assert copy_manifest["id"] == copy_product.id
+        assert copy_manifest["status"] == "pending"
+        assert copy_manifest["marketplaces"]["mercadolivre"] == {"enabled": True}
+    database.dispose()
+
+
 def test_missing_root_does_not_delete_existing_catalog(tmp_path):
     database = create_engine(f"sqlite:///{tmp_path / 'missing-root.db'}")
     Base.metadata.create_all(database)
@@ -587,6 +752,65 @@ def test_missing_root_does_not_delete_existing_catalog(tmp_path):
             )
         )
         assert remaining is not None
+    database.dispose()
+
+
+def test_empty_root_does_not_delete_existing_catalog(tmp_path):
+    database = create_engine(f"sqlite:///{tmp_path / 'empty-root.db'}")
+    Base.metadata.create_all(database)
+    root = tmp_path / "Products"
+    product_dir = root / "Product"
+    product_dir.mkdir(parents=True)
+    product_id = "0197f381-7c63-7a1d-a8b1-4e08b8472488"
+    manifest_path = product_dir / "product.yaml"
+    manifest_path.write_text(
+        f"schema_version: 2\nid: {product_id}\ntitle: Product\n",
+        encoding="utf-8",
+    )
+
+    with Session(database) as db:
+        _sync_product_catalog(db, root)
+        manifest_path.unlink()
+        product_dir.rmdir()
+
+        assert _sync_product_catalog(db, root) == []
+        assert db.scalar(
+            select(ProductRecord).where(ProductRecord.product_uuid == product_id)
+        ) is not None
+    database.dispose()
+
+
+def test_saved_missing_root_is_restored_and_allowlist_is_enforced(
+    tmp_path, monkeypatch
+):
+    database = create_engine(f"sqlite:///{tmp_path / 'saved-roots.db'}")
+    Base.metadata.create_all(database)
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+    saved_root = allowed_root / "dataset" / "Products"
+    monkeypatch.setattr(runtime, "ALLOWED_PRODUCT_ROOTS", (allowed_root,))
+    monkeypatch.setattr(runtime, "PRODUCT_ROOTS", (allowed_root,))
+    monkeypatch.setattr(runtime, "PRODUCTS_ROOT", allowed_root)
+
+    with Session(database) as db:
+        db.add(
+            AppSettingRecord(
+                key="product_roots",
+                value=json.dumps([str(saved_root)]),
+            )
+        )
+        db.commit()
+
+        restore_saved_product_roots(db)
+        assert runtime.PRODUCT_ROOTS == (saved_root.resolve(),)
+        assert not saved_root.exists()
+
+        db.get(AppSettingRecord, "product_roots").value = json.dumps(
+            [str(tmp_path / "outside" / "Products")]
+        )
+        db.commit()
+        with pytest.raises(RuntimeError, match="Não foi possível restaurar"):
+            restore_saved_product_roots(db)
     database.dispose()
 
 
@@ -638,6 +862,8 @@ def test_login_is_required_and_session_is_invalidated_on_logout():
     assert client.post("/api/auth/login", json={"password": "wrong"}).status_code == 401
 
     _login(client)
+    stolen_cookie = client.cookies.get("omnikestr_session")
+    assert stolen_cookie
     assert client.get("/api/products").status_code == 200
     assert client.get("/api/products?workspace_id=other").status_code == 403
     assert client.post(
@@ -646,6 +872,30 @@ def test_login_is_required_and_session_is_invalidated_on_logout():
     ).status_code == 403
     assert client.post("/api/auth/logout").status_code == 200
     assert client.get("/api/products").status_code == 401
+    client.cookies.set("omnikestr_session", stolen_cookie)
+    assert client.get("/api/products").status_code == 401
+
+
+def test_login_rate_limit_rejects_repeated_failures():
+    with Session(engine) as db:
+        db.execute(delete(LoginAttemptRecord))
+        db.commit()
+
+    client = TestClient(app)
+    for _ in range(5):
+        assert (
+            client.post("/api/auth/login", json={"password": "wrong"}).status_code
+            == 401
+        )
+
+    limited = client.post("/api/auth/login", json={"password": "wrong"})
+    assert limited.status_code == 429
+    assert int(limited.headers["retry-after"]) > 0
+
+    with Session(engine) as db:
+        db.execute(delete(LoginAttemptRecord))
+        db.execute(delete(AuthSessionRecord))
+        db.commit()
 
 
 def test_security_configuration_fails_closed_when_api_key_is_missing(monkeypatch):
@@ -691,6 +941,97 @@ def test_interrupted_publish_requires_reconciliation(product_api, monkeypatch):
     assert response.json()["status"] == "succeeded"
     manifest = yaml.safe_load((product_dir / "product.yaml").read_text(encoding="utf-8"))
     assert manifest["marketplaces"]["mercadolivre"]["item_id"] == "MLB123456"
+
+
+@pytest.mark.parametrize("payload", [{}, []])
+def test_invalid_marketplace_job_payload_fails_without_retry(
+    payload, tmp_path, monkeypatch
+):
+    database = create_engine(f"sqlite:///{tmp_path / 'invalid-job.db'}")
+    Base.metadata.create_all(database)
+    monkeypatch.setattr("backend_core.marketplace_worker.database.engine", database)
+    with Session(database) as db:
+        job = MarketplaceJobRecord(
+            workspace_id="default",
+            provider="mercadolivre",
+            job_type="publish_product",
+            payload=payload,
+            status="in_progress",
+            attempts=1,
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+    asyncio.run(_run_job(job_id, "default", "mercadolivre", payload))
+
+    with Session(database) as db:
+        job = db.get(MarketplaceJobRecord, job_id)
+        assert job.status == "failed"
+        assert job.attempts == 1
+    database.dispose()
+
+
+def test_worker_continues_after_unexpected_job_exception(monkeypatch):
+    async def run_worker():
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        claims = 0
+
+        def claim_job():
+            nonlocal claims
+            claims += 1
+            if claims == 1:
+                return 1, "default", "mercadolivre", {}
+            loop.call_soon_threadsafe(stop_event.set)
+            return None
+
+        def fail_finishing_job(*args, **kwargs):
+            raise SQLAlchemyError("database unavailable")
+
+        monkeypatch.setattr(
+            "backend_core.marketplace_worker._recover_interrupted_jobs", lambda: None
+        )
+        monkeypatch.setattr("backend_core.marketplace_worker._claim_job", claim_job)
+        monkeypatch.setattr(
+            "backend_core.marketplace_worker._finish_job",
+            fail_finishing_job,
+        )
+        monkeypatch.setattr(
+            "backend_core.marketplace_worker.RECOVERY_INTERVAL_SECONDS", 3600
+        )
+        await run_marketplace_worker(stop_event)
+        return claims
+
+    assert asyncio.run(run_worker()) == 2
+
+
+def test_worker_recovers_interrupted_jobs_periodically(monkeypatch):
+    async def run_worker():
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        recoveries = 0
+
+        def recover():
+            nonlocal recoveries
+            recoveries += 1
+            if recoveries >= 2:
+                loop.call_soon_threadsafe(stop_event.set)
+
+        monkeypatch.setattr(
+            "backend_core.marketplace_worker._recover_interrupted_jobs", recover
+        )
+        monkeypatch.setattr(
+            "backend_core.marketplace_worker._claim_job", lambda: None
+        )
+        monkeypatch.setattr(
+            "backend_core.marketplace_worker.RECOVERY_INTERVAL_SECONDS", 0.01
+        )
+        monkeypatch.setattr("backend_core.marketplace_worker.POLL_SECONDS", 0.002)
+        await run_marketplace_worker(stop_event)
+        return recoveries
+
+    assert asyncio.run(run_worker()) >= 2
 
 
 def test_active_marketplace_idempotency_key_is_unique(tmp_path):

@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     JSON,
     Numeric,
     String,
@@ -39,6 +40,24 @@ class AppSettingRecord(Base):
 
     key: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[str] = mapped_column(String(2048))
+
+
+class AuthSessionRecord(Base):
+    __tablename__ = "auth_sessions"
+
+    session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[int] = mapped_column(Integer, index=True)
+
+
+class LoginAttemptRecord(Base):
+    __tablename__ = "login_attempts"
+    __table_args__ = (
+        Index("ix_login_attempts_client_attempted", "client_key", "attempted_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_key: Mapped[str] = mapped_column(String(64))
+    attempted_at: Mapped[int] = mapped_column(Integer)
 
 
 class ProductEventRecord(Base):

@@ -200,11 +200,12 @@
       addField('price_floor','Piso de preço',product.price_floor,'number');
       addField('cost','Custo',product.cost,'number');
       addField('condition','Condição',product.condition,null,[['','Não definida'],['new','Novo'],['used','Usado'],['refurbished','Recondicionado']]);
-      const marketplaceNames = Array.isArray(product.marketplaces)
-        ? product.marketplaces
-        : Object.entries(product.marketplaces || {})
-          .filter(([, config]) => config && config.enabled !== false)
-          .map(([name]) => name);
+      const marketplaceConfig = Array.isArray(product.marketplaces)
+        ? Object.fromEntries(product.marketplaces.map(name => [name, { enabled: true }]))
+        : product.marketplaces || {};
+      const marketplaceNames = Object.entries(marketplaceConfig)
+        .filter(([, config]) => config && config.enabled !== false)
+        .map(([name]) => name);
       addField('marketplaces','Marketplaces',marketplaceNames.join(', '));
       addField('description','Descrição',product.description,'textarea',null,true);
       form.append(grid);
@@ -251,6 +252,43 @@
       discard.addEventListener('click', () => render(product));
       form.addEventListener('submit', async (event) => {
         event.preventDefault(); clearErrors(); save.disabled=true; saveState.textContent='Salvando...'; saveState.classList.remove('error');
+        const requestedMarketplaceNames = form.elements.marketplaces.value
+          .split(',')
+          .map(value => value.trim())
+          .filter(Boolean)
+          .map(name => {
+            const providerName = name.normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '');
+            return providerName === 'mercadolivre' ? 'mercadolivre' : name;
+          });
+        const existingMarketplaces = Array.isArray(product.marketplaces)
+          ? Object.fromEntries(product.marketplaces.map(name => [name, { enabled: true }]))
+          : product.marketplaces && typeof product.marketplaces === 'object'
+            ? product.marketplaces
+            : {};
+        const existingProviderNames = new Map(
+          Object.keys(existingMarketplaces).map(name => [name.toLowerCase(), name])
+        );
+        const requestedProviders = new Set(
+          requestedMarketplaceNames.map(name => existingProviderNames.get(name.toLowerCase()) || name)
+        );
+        const marketplaceChanges = Object.fromEntries(
+          Object.entries(existingMarketplaces).map(([provider, config]) => [
+            provider,
+            {
+              ...(config && typeof config === 'object' ? config : {}),
+              enabled: requestedProviders.has(provider),
+            },
+          ])
+        );
+        for (const provider of requestedProviders) {
+          marketplaceChanges[provider] = {
+            ...(existingMarketplaces[provider] || {}),
+            enabled: true,
+          };
+        }
         const body = {
           title: form.elements.title.value,
           sku: form.elements.sku.value || null,
@@ -260,23 +298,7 @@
           price_floor: form.elements.price_floor.value ? Number(form.elements.price_floor.value) : null,
           cost: form.elements.cost.value ? Number(form.elements.cost.value) : null,
           condition: form.elements.condition.value || null,
-          marketplaces: Object.fromEntries(
-            form.elements.marketplaces.value
-              .split(',')
-              .map(value => value.trim())
-              .filter(Boolean)
-              .map(name => {
-                const providerName = name.normalize('NFD')
-                  .replace(/[\u0300-\u036f]/g, '')
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, '');
-                const provider = providerName === 'mercadolivre' ? 'mercadolivre' : name;
-                const existing = product.marketplaces && typeof product.marketplaces === 'object'
-                  ? product.marketplaces[provider] || {}
-                  : {};
-                return [provider, { ...existing, enabled: true }];
-              })
-          ),
+          marketplaces: marketplaceChanges,
           description: form.elements.description.value || null,
         };
         try {

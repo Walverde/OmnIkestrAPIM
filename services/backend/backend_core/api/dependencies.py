@@ -32,7 +32,9 @@ def require_api_key(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="A chave da API não está configurada.",
         )
-    if not x_api_key or not hmac.compare_digest(x_api_key, expected):
+    if not x_api_key or not hmac.compare_digest(
+        x_api_key.encode("utf-8"), expected.encode("utf-8")
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="X-API-Key inválida.",

@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend_core.api.auth import (
+    SESSION_COOKIE_NAME,
     configured_api_key,
     is_valid_session,
     router as auth_router,
@@ -34,10 +35,7 @@ async def lifespan(app: FastAPI):
     validate_security_configuration()
     run_migrations()
     with SessionLocal() as db:
-        try:
-            restore_saved_product_roots(db)
-        except RuntimeError:
-            pass
+        restore_saved_product_roots(db)
 
     stop_event = asyncio.Event()
 
@@ -92,12 +90,17 @@ async def require_authenticated_session(request, call_next):
         "/api/marketplaces/mercadolivre/callback",
     }
     is_api_request = path.startswith("/api/")
-    is_authenticated = is_valid_session(request)
+    is_authenticated = (
+        await asyncio.to_thread(is_valid_session, request)
+        if request.cookies.get(SESSION_COOKIE_NAME)
+        else False
+    )
     request.state.user_authenticated = is_authenticated
 
     if is_api_request and path not in public_api_paths:
         service_key_allowed = (
-            path == "/api/products/watch" and request.method == "POST"
+            path in {"/api/products/watch", "/api/products/scan"}
+            and request.method == "POST"
         )
         if not is_authenticated and service_key_allowed:
             try:
@@ -106,7 +109,9 @@ async def require_authenticated_session(request, call_next):
                 expected_key = ""
             supplied_key = request.headers.get("X-API-Key", "")
             if expected_key and supplied_key:
-                if hmac.compare_digest(supplied_key, expected_key):
+                if hmac.compare_digest(
+                    supplied_key.encode("utf-8"), expected_key.encode("utf-8")
+                ):
                     request.state.service_authenticated = True
                     is_authenticated = True
         if not is_authenticated:

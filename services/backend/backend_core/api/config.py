@@ -30,6 +30,21 @@ def _validated_root(raw_root: str | Path) -> Path:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+def _validated_saved_root(raw_root: str) -> Path:
+    candidate = Path(raw_root).expanduser().resolve()
+    if candidate.exists() and not candidate.is_dir():
+        raise ValueError(f"A pasta salva não é um diretório: {candidate}")
+
+    for allowed_root in runtime.ALLOWED_PRODUCT_ROOTS:
+        resolved_allowed_root = Path(allowed_root).expanduser().resolve()
+        try:
+            candidate.relative_to(resolved_allowed_root)
+            return candidate
+        except ValueError:
+            continue
+    raise ValueError(f"A pasta salva não está dentro de um volume permitido: {candidate}")
+
+
 def restore_saved_product_roots(db: Session) -> None:
     saved_roots = db.get(AppSettingRecord, PRODUCT_ROOTS_SETTING)
     if saved_roots is None:
@@ -38,20 +53,15 @@ def restore_saved_product_roots(db: Session) -> None:
         configured_roots = json.loads(saved_roots.value)
         if not isinstance(configured_roots, list) or not configured_roots:
             raise ValueError("A lista de pastas está vazia ou inválida.")
-        roots = tuple(
-            dict.fromkeys(
-                Path(str(root)).expanduser().resolve()
-                for root in configured_roots
-                if isinstance(root, str)
-                and Path(str(root)).expanduser().resolve().is_dir()
-            )
-        )
+        if not all(isinstance(root, str) and root.strip() for root in configured_roots):
+            raise ValueError("A lista de pastas contém valores inválidos.")
+        roots = tuple(dict.fromkeys(_validated_saved_root(root) for root in configured_roots))
         if not roots:
             raise ValueError("Nenhuma raiz salva está montada.")
-    except (json.JSONDecodeError, TypeError, ValueError) as error:
+    except (OSError, RuntimeError, json.JSONDecodeError, TypeError, ValueError) as error:
         raise RuntimeError(
             "Não foi possível restaurar as pastas de produtos salvas. "
-            "Verifique se o volume está montado e acessível."
+            "Verifique a configuração das pastas e se os volumes permitidos estão configurados."
         ) from error
     runtime.apply_product_roots(tuple(dict.fromkeys(roots)))
 

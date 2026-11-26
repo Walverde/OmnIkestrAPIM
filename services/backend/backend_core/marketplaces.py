@@ -449,7 +449,7 @@ async def publish_product(
     }
     update_payload = {
         key: payload[key]
-        for key in ("title", "price", "available_quantity", "pictures")
+        for key in ("title", "price", "pictures")
     }
     headers = {"Authorization": f"Bearer {token}"}
     existing_item_id = str(config.get("item_id") or "")

@@ -469,40 +469,85 @@ def _sync_product_catalog_for_roots(
     preferred_ids: dict[str, str] = {
         record.path: record.product_uuid for record in existing_records
     }
+    existing_uuid_paths: dict[str, set[str]] = {}
+    for record in existing_records:
+        existing_uuid_paths.setdefault(record.product_uuid, set()).add(
+            str(Path(record.path).expanduser().resolve())
+        )
     products: List[ProductSummary] = []
     current_paths: set[str] = set()
     current_uuids: set[str] = set()
     unavailable_roots: list[Path] = []
 
     for root in normalized_roots:
-        if not root.exists():
+        if not root.is_dir():
             unavailable_roots.append(root)
             continue
         discovered = _scan_products(root, preferred_ids)
+        if not discovered and any(
+            Path(record.path).expanduser().resolve().is_relative_to(root)
+            for record in existing_records
+        ):
+            unavailable_roots.append(root)
         products.extend(discovered)
         current_paths.update(_storage_path(product.path) for product in discovered)
         current_uuids.update(product.id for product in discovered if product.id)
 
+    products_by_uuid: dict[str, list[ProductSummary]] = {}
+    for product in products:
+        if product.id:
+            products_by_uuid.setdefault(product.id, []).append(product)
+
     seen_uuids: dict[str, str] = {}
+    for product_id, duplicates in products_by_uuid.items():
+        if len(duplicates) < 2:
+            continue
+        established_paths = existing_uuid_paths.get(product_id, set())
+        primary = next(
+            (
+                product
+                for product in duplicates
+                if str(Path(product.path).expanduser().resolve()) in established_paths
+            ),
+            duplicates[0],
+        )
+        seen_uuids[product_id] = str(Path(primary.path).expanduser().resolve())
+
     for product in products:
         product_id = str(product.id or "")
-        if product_id and product_id in seen_uuids:
+        product_path = str(Path(product.path).expanduser().resolve())
+        if (
+            product_id
+            and product_id in seen_uuids
+            and seen_uuids[product_id] != product_path
+        ):
             new_id = str(uuid4())
             product.id = new_id
+            manifest = dict(product.manifest or {})
+            manifest["id"] = new_id
+            marketplaces = manifest.get("marketplaces")
+            if isinstance(marketplaces, dict):
+                for config in marketplaces.values():
+                    if isinstance(config, dict):
+                        config.pop("item_id", None)
+                        config.pop("permalink", None)
+            if manifest.get("status") == "published":
+                manifest["status"] = "pending"
+                product.status = "pending"
+            product.manifest = manifest
+            product.marketplaces = marketplaces if isinstance(marketplaces, dict) else {}
             manifest_path = Path(product.path) / "product.yaml"
             if not manifest_path.is_file():
                 manifest_path = Path(product.path) / "product.yml"
             if manifest_path.is_file():
                 try:
-                    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-                    if isinstance(manifest, dict):
-                        manifest["id"] = new_id
-                        _write_manifest_atomic(manifest_path, manifest)
-                        product.manifest = manifest
-                except (OSError, yaml.YAMLError):
-                    product.manifest_error = "Não foi possível gerar um UUID único para a cópia."
+                    _write_manifest_atomic(manifest_path, manifest)
+                except OSError:
+                    product.manifest_error = (
+                        "Não foi possível gerar um UUID único para a cópia."
+                    )
         elif product_id:
-            seen_uuids[product_id] = str(product.path)
+            seen_uuids.setdefault(product_id, product_path)
         _upsert_product_record(db, product, workspace_id)
 
     for record in existing_records:

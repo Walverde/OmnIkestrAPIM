@@ -78,6 +78,59 @@ function Initialize-PickerToken {
     $env:PICKER_TOKEN = $token
 }
 
+function New-RandomHex {
+    param([int]$ByteCount)
+
+    $bytes = New-Object byte[] $ByteCount
+    $generator = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $generator.GetBytes($bytes)
+    } finally {
+        $generator.Dispose()
+    }
+    return [System.BitConverter]::ToString($bytes).Replace("-", "").ToLowerInvariant()
+}
+
+function Ensure-LocalEnvValue {
+    param(
+        [string]$Name,
+        [string]$Value
+    )
+
+    $lines = @()
+    if (Test-Path -LiteralPath $envFile) {
+        $lines = [System.IO.File]::ReadAllLines($envFile)
+    }
+
+    for ($index = 0; $index -lt $lines.Count; $index++) {
+        if ($lines[$index].StartsWith("$Name=", [System.StringComparison]::Ordinal)) {
+            if (-not [string]::IsNullOrWhiteSpace($lines[$index].Substring($Name.Length + 1))) {
+                return
+            }
+            $lines[$index] = "$Name=$Value"
+            [System.IO.File]::WriteAllLines(
+                $envFile,
+                $lines,
+                [System.Text.UTF8Encoding]::new($false)
+            )
+            return
+        }
+    }
+
+    $lines += "$Name=$Value"
+    [System.IO.File]::WriteAllLines(
+        $envFile,
+        $lines,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+}
+
+function Initialize-LocalSecurityConfiguration {
+    Ensure-LocalEnvValue "OMNIKESTRAPIM_API_KEY" (New-RandomHex 32)
+    Ensure-LocalEnvValue "OMNIKESTRAPIM_ADMIN_PASSWORD" (New-RandomHex 24)
+    Ensure-LocalEnvValue "OMNIKESTRAPIM_SESSION_SECRET" (New-RandomHex 32)
+}
+
 function Start-HelperIfNeeded {
     $helperListenerReady = Test-LocalHttpListener "http://127.0.0.1:8765/status"
     if ($helperListenerReady) {
@@ -105,6 +158,7 @@ function Start-HelperIfNeeded {
 }
 
 Initialize-PickerToken
+Initialize-LocalSecurityConfiguration
 
 try {
     $dockerCommand = Get-Command docker -ErrorAction Stop
@@ -130,5 +184,6 @@ if (-not $NoOpenBrowser) {
 
 Write-Host ""
 Write-Host "Aplicação iniciada."
+Write-Host "A senha inicial do administrador está em OMNIKESTRAPIM_ADMIN_PASSWORD no arquivo .env."
 Write-Host "Acesse: http://localhost:8000/settings"
 Write-Host "O seletor do Windows foi inicializado e permanece aberto para seleção da pasta de anúncios."

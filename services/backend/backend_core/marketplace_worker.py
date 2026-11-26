@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -22,6 +23,7 @@ from .models import DomainEventRecord, MarketplaceJobRecord, ProductRecord
 logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 5
 POLL_SECONDS = 2
+RECOVERY_INTERVAL_SECONDS = 60
 
 
 def _recover_interrupted_jobs() -> None:
@@ -139,15 +141,9 @@ async def _run_job(job_id: int, workspace_id: str, provider: str, payload: dict)
         _finish_job(
             job_id, workspace_id, provider, payload, error, retry=error.retryable
         )
-    except (
-        httpx.HTTPError,
-        OSError,
-        SQLAlchemyError,
-        ValueError,
-        KeyError,
-        RuntimeError,
-        yaml.YAMLError,
-    ) as error:
+    except (KeyError, TypeError, ValueError, RuntimeError, yaml.YAMLError) as error:
+        _finish_job(job_id, workspace_id, provider, payload, error, retry=False)
+    except (httpx.HTTPError, OSError, SQLAlchemyError) as error:
         _finish_job(job_id, workspace_id, provider, payload, error, retry=True)
 
 
@@ -159,6 +155,7 @@ def _finish_job(
     error: Exception,
     retry: bool,
 ) -> None:
+    product_id = payload.get("product_id") if isinstance(payload, dict) else None
     with Session(database.engine) as db:
         job = db.get(MarketplaceJobRecord, job_id)
         if job is None:
@@ -176,7 +173,7 @@ def _finish_job(
                 DomainEventRecord(
                     workspace_id=workspace_id,
                     event_type="marketplace.publish.failed",
-                    aggregate_id=payload.get("product_id"),
+                    aggregate_id=product_id,
                     payload={
                         "provider": provider,
                         "job_id": job_id,
@@ -205,6 +202,7 @@ def _mark_reconciliation_required(
     payload: dict,
     error: Exception,
 ) -> None:
+    product_id = payload.get("product_id") if isinstance(payload, dict) else None
     with Session(database.engine) as db:
         job = db.get(MarketplaceJobRecord, job_id)
         if job is None:
@@ -215,7 +213,7 @@ def _mark_reconciliation_required(
             DomainEventRecord(
                 workspace_id=workspace_id,
                 event_type="marketplace.publish.reconciliation_required",
-                aggregate_id=payload.get("product_id"),
+                aggregate_id=product_id,
                 payload={
                     "provider": provider,
                     "job_id": job_id,
@@ -236,14 +234,52 @@ def _mark_reconciliation_required(
     )
 
 
+async def _run_recovery() -> None:
+    try:
+        await asyncio.to_thread(_recover_interrupted_jobs)
+    except Exception:
+        logger.exception(
+            "Unexpected error during marketplace job recovery",
+            extra={"event": "marketplace.jobs.recovery_unexpected"},
+        )
+
+
 async def run_marketplace_worker(stop_event: asyncio.Event) -> None:
-    await asyncio.to_thread(_recover_interrupted_jobs)
+    await _run_recovery()
+    last_recovery = time.monotonic()
     while not stop_event.is_set():
-        job = await asyncio.to_thread(_claim_job)
-        if job is None:
+        try:
+            if time.monotonic() - last_recovery >= RECOVERY_INTERVAL_SECONDS:
+                await _run_recovery()
+                last_recovery = time.monotonic()
+            if stop_event.is_set():
+                break
+
+            job = await asyncio.to_thread(_claim_job)
+            if job is None:
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=POLL_SECONDS)
+                except TimeoutError:
+                    continue
+                break
+            try:
+                await _run_job(*job)
+            except Exception:
+                logger.exception(
+                    "Unexpected error while processing marketplace job",
+                    extra={
+                        "event": "marketplace.job.unexpected",
+                        "job_id": job[0],
+                        "provider": job[2],
+                    },
+                )
+        except Exception:
+            logger.exception(
+                "Unexpected error in marketplace worker loop",
+                extra={"event": "marketplace.worker.unexpected"},
+            )
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=POLL_SECONDS)
             except TimeoutError:
                 continue
             break
-        await _run_job(*job)

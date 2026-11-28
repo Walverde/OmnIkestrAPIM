@@ -79,7 +79,7 @@ bash scripts/backup-truenas.sh
 bash scripts/restore-truenas.sh /caminho/para/backup.dump
 ```
 
-For the initial TrueNAS SCALE 25.10 Custom App deployment, use the production
+For the initial TrueNAS SCALE 25.10 Docker Compose deployment, use the production
 Compose file and follow the dataset, image publishing, permissions, and security
 steps in [the TrueNAS installation guide](docs/deployment/truenas-scale-25.10.md).
 Do not use the development Compose file directly on production data.

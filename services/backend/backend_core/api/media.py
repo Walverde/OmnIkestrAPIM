@@ -1,5 +1,6 @@
 from pathlib import Path
 from uuid import UUID
+from PIL import Image
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -14,6 +15,8 @@ from .dependencies import get_db
 
 
 router = APIRouter()
+MAX_IMAGE_PIXELS = 100_000_000
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
 @router.get("/api/products/{product_id}/media/{relative_path:path}")
@@ -70,7 +73,11 @@ def get_product_media(
     if not cache_path.exists():
         try:
             create_webp_thumbnail(source_path, cache_path)
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, Image.DecompressionBombError) as error:
+            if isinstance(error, Image.DecompressionBombError):
+                raise HTTPException(
+                    status_code=413, detail="Imagem excede o limite permitido."
+                ) from error
             raise HTTPException(
                 status_code=415, detail="Não foi possível processar esta imagem."
             ) from error

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import runtime
 from ..catalog import (
+    _CATALOG_SYNC_LOCK,
     _ensure_product_uuid_unique,
     _scan_product,
     _serialize_product,
@@ -156,9 +157,10 @@ def scan_products(
         if force_cleanup
         else set()
     )
-    products = _sync_product_catalog_for_roots(
-        db, runtime.PRODUCT_ROOTS, workspace_id, force_cleanup=force_cleanup
-    )
+    with _CATALOG_SYNC_LOCK:
+        products = _sync_product_catalog_for_roots(
+            db, runtime.PRODUCT_ROOTS, workspace_id, force_cleanup=force_cleanup
+        )
     current_ids = (
         set(
             db.scalars(

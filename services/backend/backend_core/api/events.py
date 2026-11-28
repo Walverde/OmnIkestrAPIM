@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+import time
+import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import delete, select
@@ -20,6 +22,18 @@ from .dependencies import get_db, require_api_key
 
 
 router = APIRouter()
+_CATALOG_EVENT_LOCK = threading.Lock()
+_LAST_EVENT_PRUNE = 0.0
+
+
+def _prune_events_throttled(db: Session, workspace_id: str) -> None:
+    global _LAST_EVENT_PRUNE
+    now = time.monotonic()
+    if now - _LAST_EVENT_PRUNE < 60:
+        return
+    _LAST_EVENT_PRUNE = now
+    _prune_product_events(db, workspace_id)
+    _prune_domain_events(db, workspace_id)
 
 
 def _prune_product_events(db: Session, workspace_id: str) -> None:
@@ -125,7 +139,8 @@ def receive_product_event(
         or _root_for_path(event.destination_path, runtime.PRODUCT_ROOTS)
         or runtime.PRODUCTS_ROOT
     )
-    indexed_products = _sync_product_for_event(db, root, event)
+    with _CATALOG_EVENT_LOCK:
+        indexed_products = _sync_product_for_event(db, root, event)
     db.add(
         DomainEventRecord(
             workspace_id=event.workspace_id,
@@ -140,8 +155,7 @@ def receive_product_event(
         )
     )
     db.commit()
-    _prune_product_events(db, event.workspace_id)
-    _prune_domain_events(db, event.workspace_id)
+    _prune_events_throttled(db, event.workspace_id)
     return {
         "status": "accepted",
         "event": event.model_dump(),

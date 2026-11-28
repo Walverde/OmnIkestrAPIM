@@ -100,6 +100,7 @@ async def require_authenticated_session(request, call_next):
     path = request.url.path
     public_api_paths = {
         "/api/health",
+        "/api/ready",
         "/api/auth/login",
         "/api/auth/logout",
         "/api/auth/session",

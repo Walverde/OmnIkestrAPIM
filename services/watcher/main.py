@@ -256,6 +256,20 @@ def reconcile_catalog(backend_url: str = BACKEND_URL) -> None:
         logging.exception("Periodic full catalog reconciliation failed")
 
 
+def touch_if_alive(observer, path: Path) -> None:
+    if observer.is_alive():
+        try:
+            path.touch()
+        except OSError:
+            pass
+
+
+def heartbeat_loop(observer, path: Path = Path("/tmp/watcher-heartbeat"), interval: float = 5.0) -> None:
+    while True:
+        touch_if_alive(observer, path)
+        time.sleep(interval)
+
+
 if __name__ == "__main__":
     logging.info("🔍 Iniciando File Watcher nos diretórios: %s", WATCH_DIRECTORIES)
     notifiers = []
@@ -267,16 +281,16 @@ if __name__ == "__main__":
         event_handler = ProductFolderHandler(notifier)
         observer.schedule(event_handler, path=watch_directory, recursive=True)
     observer.start()
+    threading.Thread(
+        target=heartbeat_loop,
+        args=(observer,),
+        daemon=True,
+    ).start()
     next_reconciliation = time.monotonic() + RECONCILE_INTERVAL_SECONDS
 
     try:
         while True:
             time.sleep(1)
-            heartbeat = Path("/tmp/watcher-heartbeat")
-            try:
-                heartbeat.touch()
-            except OSError:
-                pass
             if time.monotonic() >= next_reconciliation:
                 reconcile_catalog()
                 next_reconciliation = time.monotonic() + RECONCILE_INTERVAL_SECONDS

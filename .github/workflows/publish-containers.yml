@@ -1,6 +1,9 @@
 name: Publish TrueNAS container images
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -11,7 +14,56 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: omnikestr
+          POSTGRES_USER: omnikestr
+          POSTGRES_PASSWORD: test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U omnikestr -d omnikestr"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r services/backend/requirements.txt -r services/backend/requirements-dev.txt
+          python -m pip install -r services/watcher/requirements.txt
+      - name: Run test suites
+        run: |
+          python -m pytest -q services/backend/test_main.py
+          python -m pytest -q services/watcher/test_main.py
+      - name: Run shell checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh scripts/lib/*.sh
+          bash scripts/tests/test_env.sh
+      - name: Validate TrueNAS compose
+        run: |
+          docker compose -f docker/docker-compose.truenas.yml --env-file docker/ci.env.example config --quiet
+      - name: Exercise Alembic migrations on PostgreSQL
+        env:
+          DATABASE_URL: postgresql+psycopg2://omnikestr:test-password@127.0.0.1:5432/omnikestr
+        run: |
+          cd services/backend
+          python -c "from backend_core.database import run_migrations; run_migrations(); run_migrations()"
+          python -c "from sqlalchemy import create_engine, text; e=create_engine('${DATABASE_URL}'); print(e.connect().execute(text('select version_num from alembic_version')).scalar())"
+
   publish:
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read

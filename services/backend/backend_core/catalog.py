@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import re
 import tempfile
 from pathlib import Path
@@ -25,6 +26,7 @@ from .models import (
 
 
 IMAGE_EXTENSIONS = {"bmp", "gif", "heic", "jpeg", "jpg", "png", "tif", "tiff", "webp"}
+_CATALOG_SYNC_LOCK = threading.Lock()
 DIRECT_MEDIA_EXTENSIONS = IMAGE_EXTENSIONS | {
     "avi",
     "m4a",
@@ -58,11 +60,20 @@ def _storage_path(path: str | Path) -> str:
 
 
 def _is_ignored_product_path(path: Path) -> bool:
-    return any(part.startswith("_") for part in path.parts)
+    if any(part.startswith("_") for part in path.parts):
+        return True
+    name = path.name.casefold()
+    return (
+        name in {"thumbs.db", ".ds_store"}
+        or name.startswith("~$")
+        or name.endswith(".tmp")
+        or name.endswith(".psd")
+        or (name.startswith(".product.yaml.") and name.endswith(".tmp"))
+    )
 
 
 def _ensure_workspace(db: Session, workspace_id: str = DEFAULT_WORKSPACE_ID) -> None:
-    if not inspect(db.bind).has_table("workspaces"):
+    if db.bind.dialect.name == "sqlite" and not inspect(db.bind).has_table("workspaces"):
         Base.metadata.create_all(bind=db.bind)
     if db.get(WorkspaceRecord, workspace_id) is None:
         db.add(WorkspaceRecord(id=workspace_id, name=workspace_id))
@@ -150,11 +161,7 @@ def _manifest_metadata(
                 for item in error.errors()
             )
             if any(item["loc"] == ("id",) for item in error.errors()):
-                raw_metadata["id"] = str(preferred_id or uuid4())
-                try:
-                    _write_manifest_atomic(manifest_path, raw_metadata)
-                except OSError:
-                    pass
+                details = "id inválido: corrija ou remova o campo `id`"
             try:
                 return json.loads(json.dumps(raw_metadata, default=str)), details
             except (TypeError, ValueError):
@@ -272,20 +279,22 @@ def _scan_product(
         except ValueError:
             folder_group = ""
     files: List[ProductFile] = []
-    for file in sorted(product_path.rglob("*"), key=lambda item: str(item).lower()):
-        if file.is_dir():
-            continue
-        relative_path = file.relative_to(root)
-        if _is_ignored_product_path(relative_path):
-            continue
-        files.append(
-            ProductFile(
-                name=file.name,
-                full_path=_display_path(file),
-                relative_path=_display_path(relative_path),
-                extension=file.suffix.lower().lstrip(".") or None,
+    for current_root, dirnames, filenames in os.walk(product_path):
+        dirnames[:] = [dirname for dirname in dirnames if not dirname.startswith("_")]
+        current = Path(current_root)
+        for filename in sorted(filenames, key=str.casefold):
+            file = current / filename
+            relative_path = file.relative_to(root)
+            if _is_ignored_product_path(relative_path):
+                continue
+            files.append(
+                ProductFile(
+                    name=file.name,
+                    full_path=_display_path(file),
+                    relative_path=_display_path(relative_path),
+                    extension=file.suffix.lower().lstrip(".") or None,
+                )
             )
-        )
 
     product = _analyze_product(
         product_path.name,

@@ -150,6 +150,10 @@ activemq-data/
 
 # Environments
 .env
+docker/.env
+backups/
+*.dump
+*.sql.gz
 .folder-picker-token
 .envrc
 .venv

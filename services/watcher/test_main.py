@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from main import DebouncedProductNotifier, ProductFolderHandler
+from main import DebouncedProductNotifier, ProductFolderHandler, touch_if_alive
 
 
 class DebouncedProductNotifierTests(unittest.TestCase):
@@ -147,6 +147,17 @@ class DebouncedProductNotifierTests(unittest.TestCase):
             from main import _configured_api_key
 
             self.assertEqual(_configured_api_key(), "watcher-api-key-from-file")
+
+    def test_heartbeat_only_when_observer_alive(self):
+        heartbeat = Path(self.temp_dir.name) / "watcher-heartbeat"
+        alive = SimpleNamespace(is_alive=lambda: True)
+        dead = SimpleNamespace(is_alive=lambda: False)
+
+        touch_if_alive(alive, heartbeat)
+        self.assertTrue(heartbeat.is_file())
+        heartbeat.unlink()
+        touch_if_alive(dead, heartbeat)
+        self.assertFalse(heartbeat.exists())
 
 
 if __name__ == "__main__":

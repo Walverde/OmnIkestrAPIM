@@ -2,7 +2,7 @@
 
 **Última atualização:** 28/11/2026
 
-**Status geral do projeto:** Em desenvolvimento ativo — estabilização e segurança propostas como OmnIkestrAPIM 0.2.1. A autenticação, o alias de compatibilidade de `main.py`, documentação, testes locais e montagem somente leitura do watcher estão implementados no checkout; validação operacional no TrueNAS e backup/restauração continuam pendentes.
+**Status geral do projeto:** Em desenvolvimento ativo — estabilização e segurança propostas como OmnIkestrAPIM 0.2.1. A autenticação, o alias de compatibilidade de `main.py`, documentação, testes locais, instalação parametrizada no TrueNAS e scripts de backup/restauração estão implementados no checkout; CI migrada, mas validação operacional no TrueNAS continua pendente.
 
 **Fonte única de planejamento e decisões:** este documento consolida o roadmap oficial anterior, os rascunhos de roadmap e as decisões dos ADRs 0001 e 0002. Novas tarefas, status e decisões devem ser mantidos somente aqui. `docs/ARCHITECTURE.md` continua como referência descritiva de arquitetura, sem substituir este registro.
 
@@ -99,6 +99,19 @@ Decisões aceitas são registradas aqui com a data. A documentação antiga de A
 - [x] Usar exclusivamente o Ollama local instalado como App no TrueNAS, sem
   fallback para provedores em nuvem; configurar URL e modelo por instalação
   (decisão registrada em 22/11/2026).
+
+### 3.7 Movimentação e cópia de produtos
+
+- [x] Movimentação que preserva identidade não gera novo UUID; cópia verdadeira
+  recebe identidade nova apenas na reconciliação. A pasta conflitante só é
+  alterada após confirmar que o caminho antigo deixou de existir
+  (implementado em 28/11/2026).
+
+### 3.8 Formato de preço
+
+- [ ] A representação numérica canônica ainda não foi fechada: YAML usa string
+  JSON, banco usa `Numeric` e API pode expor decimal/float. A decisão exige teste
+  de ida e volta PATCH → YAML → leitura antes de alterar o formato.
 
 ---
 

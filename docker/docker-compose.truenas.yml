@@ -2,16 +2,16 @@ name: omnikestr
 
 services:
   db:
-    image: postgres@sha256:9d9e487c1bd6413c52ccb3c02f46c8e37fa1e1d1a32a84519eb4e68d0ad1da30
+    image: postgres:16-alpine
     environment:
-      POSTGRES_DB: omnikestr
-      POSTGRES_USER: omnikestr
+      POSTGRES_DB: ${POSTGRES_DB:-omnikestr}
+      POSTGRES_USER: ${POSTGRES_USER:-omnikestr}
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
     secrets:
       - postgres_password
     volumes:
       - type: bind
-        source: /mnt/gbZaid/OmnIkestrAPIM/postgres
+        source: ${APPS_ROOT}/OmnIkestrAPIM/postgres
         target: /var/lib/postgresql/data
         bind:
           create_host_path: false
@@ -24,27 +24,29 @@ services:
     restart: unless-stopped
     networks:
       - omnikestr
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   backend:
-    image: ${OMNIKESTRAPIM_BACKEND_IMAGE:-ghcr.io/walverde/omnikestrapim-backend:latest}
+    image: ghcr.io/walverde/omnikestrapim-backend:${OMNIKESTRAPIM_VERSION:-latest}
     user: "568:568"
     command:
       - /bin/sh
       - -ec
       - |
         DB_PASSWORD="$$(cat /run/secrets/postgres_password)"
-        if [ -z "$$DB_PASSWORD" ]; then
-          echo "PostgreSQL password secret is empty." >&2
-          exit 1
-        fi
         export DATABASE_URL="postgresql+psycopg2://$${POSTGRES_USER}:$${DB_PASSWORD}@db:5432/$${POSTGRES_DB}"
         exec python -m backend_core.server
     ports:
-      - "${TRUENAS_LAN_IP:-192.168.100.58}:8000:8000"
+      - "${BIND_IP:-0.0.0.0}:${OMNIKESTRAPIM_PORT:-8000}:8000"
     environment:
       PYTHONUNBUFFERED: "1"
-      POSTGRES_DB: omnikestr
-      POSTGRES_USER: omnikestr
+      POSTGRES_DB: ${POSTGRES_DB:-omnikestr}
+      POSTGRES_USER: ${POSTGRES_USER:-omnikestr}
       PRODUCTS_ROOT: /data/products
       PRODUCT_ROOTS: /data/products
       OMNIKESTRAPIM_API_KEY: "${OMNIKESTRAPIM_API_KEY:?Configure OMNIKESTRAPIM_API_KEY}"
@@ -53,30 +55,13 @@ services:
       OMNIKESTRAPIM_COOKIE_SECURE: "${OMNIKESTRAPIM_COOKIE_SECURE:-false}"
       UVICORN_PROXY_HEADERS: "${UVICORN_PROXY_HEADERS:-true}"
       FORWARDED_ALLOW_IPS: "${FORWARDED_ALLOW_IPS:-127.0.0.1}"
-      PUID: "568"
-      PGID: "568"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-}"
-      MELI_CLIENT_ID_FILE: /run/secrets/meli_client_id
-      MELI_CLIENT_SECRET_FILE: /run/secrets/meli_client_secret
-      MARKETPLACE_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/marketplace_token_key
-      MARKETPLACE_ACTION_TOKEN_FILE: /run/secrets/marketplace_action_token
-      MELI_REDIRECT_URI: "${MELI_REDIRECT_URI:-}"
-      MELI_SITE_ID: "${MELI_SITE_ID:-MLB}"
-      MELI_CURRENCY_ID: "${MELI_CURRENCY_ID:-BRL}"
-      MELI_LISTING_TYPE_ID: "${MELI_LISTING_TYPE_ID:-}"
-      MELI_CATEGORY_ID: "${MELI_CATEGORY_ID:-}"
-      MELI_AVAILABLE_QUANTITY: "${MELI_AVAILABLE_QUANTITY:-1}"
-      MELI_MIN_REQUEST_INTERVAL_SECONDS: "${MELI_MIN_REQUEST_INTERVAL_SECONDS:-1}"
     secrets:
       - postgres_password
-      - meli_client_id
-      - meli_client_secret
-      - marketplace_token_key
-      - marketplace_action_token
     volumes:
       - type: bind
-        source: /mnt/gbZaid/OmnIkestrAPIM-Products
+        source: ${APPS_ROOT}/OmnIkestrAPIM-Products
         target: /data/products
         bind:
           create_host_path: false
@@ -92,21 +77,24 @@ services:
     restart: unless-stopped
     networks:
       - omnikestr
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   watcher:
-    image: ${OMNIKESTRAPIM_WATCHER_IMAGE:-ghcr.io/walverde/omnikestrapim-watcher:latest}
+    image: ghcr.io/walverde/omnikestrapim-watcher:${OMNIKESTRAPIM_VERSION:-latest}
     user: "568:568"
     environment:
       PYTHONUNBUFFERED: "1"
       WATCH_DIRS: /data/products
-      PRODUCT_ROOTS: /data/products
       BACKEND_URL: http://backend:8000
       OMNIKESTRAPIM_API_KEY: "${OMNIKESTRAPIM_API_KEY:?Configure OMNIKESTRAPIM_API_KEY}"
-      PUID: "568"
-      PGID: "568"
     volumes:
       - type: bind
-        source: /mnt/gbZaid/OmnIkestrAPIM-Products
+        source: ${APPS_ROOT}/OmnIkestrAPIM-Products
         target: /data/products
         read_only: true
         bind:
@@ -114,9 +102,21 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://backend:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
     networks:
       - omnikestr
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   omnikestr:
@@ -124,12 +124,4 @@ networks:
 
 secrets:
   postgres_password:
-    file: /mnt/gbZaid/OmnIkestrAPIM/secrets/postgres_password
-  meli_client_id:
-    file: /mnt/gbZaid/OmnIkestrAPIM/secrets/mercadolivre_client_id
-  meli_client_secret:
-    file: /mnt/gbZaid/OmnIkestrAPIM/secrets/mercadolivre_client_secret
-  marketplace_token_key:
-    file: /mnt/gbZaid/OmnIkestrAPIM/secrets/marketplace_token_key
-  marketplace_action_token:
-    file: /mnt/gbZaid/OmnIkestrAPIM/secrets/marketplace_action_token
+    file: ${APPS_ROOT}/OmnIkestrAPIM/secrets/postgres_password

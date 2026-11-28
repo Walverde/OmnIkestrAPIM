@@ -48,6 +48,18 @@ IGNORE_PATTERNS = [
 ]
 
 
+def _configured_api_key() -> str:
+    secret_file = os.getenv("OMNIKESTRAPIM_API_KEY_FILE", "").strip()
+    if secret_file:
+        try:
+            with open(secret_file, "r", encoding="utf-8") as handle:
+                return handle.read().strip()
+        except OSError:
+            logging.exception("Failed to read OMNIKESTRAPIM_API_KEY_FILE")
+            return ""
+    return os.getenv("OMNIKESTRAPIM_API_KEY", "").strip()
+
+
 class DebouncedProductNotifier:
     def __init__(
         self,
@@ -172,7 +184,7 @@ class DebouncedProductNotifier:
 
     def _send(self, payload: dict[str, Any]) -> None:
         try:
-            api_key = os.getenv("OMNIKESTRAPIM_API_KEY", "").strip()
+            api_key = _configured_api_key()
             headers = {"X-API-Key": api_key} if api_key else {}
             response = self.post(
                 f"{self.backend_url}/api/products/watch",
@@ -231,7 +243,7 @@ class ProductFolderHandler(FileSystemEventHandler):
 
 def reconcile_catalog(backend_url: str = BACKEND_URL) -> None:
     try:
-        api_key = os.getenv("OMNIKESTRAPIM_API_KEY", "").strip()
+        api_key = _configured_api_key()
         headers = {"X-API-Key": api_key} if api_key else {}
         response = requests.post(
             f"{backend_url}/api/products/scan",

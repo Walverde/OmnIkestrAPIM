@@ -1,0 +1,29 @@
+services:
+  backend:
+    environment:
+      MELI_CLIENT_ID_FILE: /run/secrets/meli_client_id
+      MELI_CLIENT_SECRET_FILE: /run/secrets/meli_client_secret
+      MARKETPLACE_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/marketplace_token_key
+      MARKETPLACE_ACTION_TOKEN_FILE: /run/secrets/marketplace_action_token
+      MELI_REDIRECT_URI: "${MELI_REDIRECT_URI:-}"
+      MELI_SITE_ID: "${MELI_SITE_ID:-MLB}"
+      MELI_CURRENCY_ID: "${MELI_CURRENCY_ID:-BRL}"
+      MELI_LISTING_TYPE_ID: "${MELI_LISTING_TYPE_ID:-}"
+      MELI_CATEGORY_ID: "${MELI_CATEGORY_ID:-}"
+      MELI_AVAILABLE_QUANTITY: "${MELI_AVAILABLE_QUANTITY:-1}"
+      MELI_MIN_REQUEST_INTERVAL_SECONDS: "${MELI_MIN_REQUEST_INTERVAL_SECONDS:-1}"
+    secrets:
+      - meli_client_id
+      - meli_client_secret
+      - marketplace_token_key
+      - marketplace_action_token
+
+secrets:
+  meli_client_id:
+    file: ${APPS_ROOT}/OmnIkestrAPIM/secrets/mercadolivre_client_id
+  meli_client_secret:
+    file: ${APPS_ROOT}/OmnIkestrAPIM/secrets/mercadolivre_client_secret
+  marketplace_token_key:
+    file: ${APPS_ROOT}/OmnIkestrAPIM/secrets/marketplace_token_key
+  marketplace_action_token:
+    file: ${APPS_ROOT}/OmnIkestrAPIM/secrets/marketplace_action_token

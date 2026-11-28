@@ -1,6 +1,6 @@
 # OmniKestra (OmnIkestrAPIM) — Roadmap Oficial
 
-**Última atualização:** 24/11/2026
+**Última atualização:** 28/11/2026
 
 **Status geral do projeto:** Em desenvolvimento ativo — estabilização e segurança propostas como OmnIkestrAPIM 0.2.1. A autenticação, o alias de compatibilidade de `main.py`, documentação, testes locais e montagem somente leitura do watcher estão implementados no checkout; validação operacional no TrueNAS e backup/restauração continuam pendentes.
 
@@ -120,6 +120,8 @@ As versões abaixo organizam prioridades; são propostas de planejamento, não c
 4. [x] Executar integralmente as suítes locais: 54 testes do backend e 8 do watcher aprovados em 26/11/2026; confirmar também a execução na pipeline CI após integração.
 5. [-] Validar mecanismos de proteção do TrueNAS: chave obrigatória, secrets, rede e volume do watcher somente leitura. Compose e configuração resolvida foram verificados localmente em 24/11/2026; falta implantar e testar no host.
 6. [ ] Testar backup e restauração, incluindo consistência do banco e do dataset de produtos, atualização e rollback no TrueNAS.
+7. [-] Disponibilizar instalação inicial no TrueNAS sem secrets pessoais no Compose: script idempotente, Compose parametrizado por `APPS_ROOT`, `BIND_IP` e `OMNIKESTRAPIM_VERSION`, watcher com suporte a `_FILE` e restauração lógica implementados; falta executar em host real.
+8. [ ] Separar a integração Mercado Livre em Compose opcional e validar a instalação básica sem arquivos de credential.
 
 #### OmnIkestrAPIM 0.3 — Marketplace confiável
 

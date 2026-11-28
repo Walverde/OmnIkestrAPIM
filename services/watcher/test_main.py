@@ -1,8 +1,9 @@
 import tempfile
 import unittest
+import os
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from main import DebouncedProductNotifier, ProductFolderHandler
 
@@ -133,6 +134,19 @@ class DebouncedProductNotifierTests(unittest.TestCase):
         notifier.flush_all()
 
         self.post.assert_called_once()
+
+    def test_api_key_can_be_read_from_secret_file(self):
+        secret_file = Path(self.temp_dir.name) / "api-key"
+        secret_file.write_text("watcher-api-key-from-file\n", encoding="utf-8")
+
+        with patch.dict(
+            os.environ,
+            {"OMNIKESTRAPIM_API_KEY_FILE": str(secret_file)},
+            clear=False,
+        ):
+            from main import _configured_api_key
+
+            self.assertEqual(_configured_api_key(), "watcher-api-key-from-file")
 
 
 if __name__ == "__main__":

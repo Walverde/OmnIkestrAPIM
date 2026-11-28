@@ -18,16 +18,31 @@ STATIC_ROOT = Path(__file__).resolve().parents[2] / "static"
 
 
 @router.get("/api/health")
-def health_check(response: Response, db: Session = Depends(get_db)):
+def health_check(request: Request, response: Response, db: Session = Depends(get_db)):
     response.headers["Cache-Control"] = "no-store"
     catalog_updated_at = db.scalar(select(func.max(ProductRecord.scanned_at)))
+    mount_status = []
+    roots_writable = True
+    for root in runtime.PRODUCT_ROOTS:
+        mounted = root.is_dir()
+        writable = mounted and os.access(root, os.W_OK)
+        mount_status.append({
+            "path": root.as_posix(),
+            "mounted": mounted,
+            "writable": writable,
+        })
+        roots_writable = roots_writable and mounted and writable
+    if not roots_writable:
+        response.status_code = 503
     return {
-        "status": "healthy",
+        "status": "healthy" if roots_writable else "setup_required",
         "service": "OmnIkestrAPIM Core Backend",
         "version": os.getenv("BUILD_VERSION") or "development",
         "commit": os.getenv("BUILD_COMMIT", "unknown"),
         "built_at": os.getenv("BUILD_DATE", "unknown"),
         "catalog_updated_at": catalog_updated_at.isoformat() if catalog_updated_at else None,
+        "product_roots": mount_status,
+        "setup_warning": getattr(request.app.state, "setup_warning", None),
     }
 
 

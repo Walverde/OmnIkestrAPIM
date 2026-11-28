@@ -59,6 +59,19 @@ The backend writes application logs as JSON to stdout. Migration `0006_auth_sess
 
 ## TrueNAS SCALE
 
+Para uma instalação piloto, execute a partir do checkout no TrueNAS:
+
+```bash
+bash scripts/install-truenas.sh
+```
+
+O instalador cria os datasets e secrets, protege o `.env`, valida o Compose,
+gera os valores de segurança iniciais e inicia backend, banco e watcher.
+Use `bash scripts/install-truenas.sh --upgrade` para criar snapshots ZFS antes
+da atualização quando os datasets forem ZFS. O script `--uninstall` remove os
+containers sem apagar dados. O Mercado Livre pode ser habilitado separadamente
+com `docker-compose.marketplace.yml`.
+
 For the initial TrueNAS SCALE 25.10 Custom App deployment, use the production
 Compose file and follow the dataset, image publishing, permissions, and security
 steps in [the TrueNAS installation guide](docs/deployment/truenas-scale-25.10.md).

@@ -485,7 +485,9 @@ def _ensure_product_uuid_unique(
         )
     ).all()
     if any(
-        record.path != storage_path and record.id != allowed_record_id
+        record.path != storage_path
+        and record.id != allowed_record_id
+        and Path(record.path).expanduser().resolve().exists()
         for record in matching_records
     ):
         _assign_new_product_uuid(product)

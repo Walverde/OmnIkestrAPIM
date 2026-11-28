@@ -32,10 +32,8 @@ def health_check(request: Request, response: Response, db: Session = Depends(get
             "writable": writable,
         })
         roots_writable = roots_writable and mounted and writable
-    if not roots_writable:
-        response.status_code = 503
     return {
-        "status": "healthy" if roots_writable else "setup_required",
+        "status": "healthy" if roots_writable else "degraded",
         "service": "OmnIkestrAPIM Core Backend",
         "version": os.getenv("BUILD_VERSION") or "development",
         "commit": os.getenv("BUILD_COMMIT", "unknown"),
@@ -43,6 +41,27 @@ def health_check(request: Request, response: Response, db: Session = Depends(get
         "catalog_updated_at": catalog_updated_at.isoformat() if catalog_updated_at else None,
         "product_roots": mount_status,
         "setup_warning": getattr(request.app.state, "setup_warning", None),
+    }
+
+
+@router.get("/api/ready")
+def readiness_check(request: Request, response: Response, db: Session = Depends(get_db)):
+    roots_ready = all(root.is_dir() and os.access(root, os.W_OK) for root in runtime.PRODUCT_ROOTS)
+    setup_warning = getattr(request.app.state, "setup_warning", None)
+    ready = roots_ready and setup_warning is None
+    if not ready:
+        response.status_code = 503
+    return {
+        "status": "ready" if ready else "setup_required",
+        "product_roots": [
+            {
+                "path": root.as_posix(),
+                "mounted": root.is_dir(),
+                "writable": root.is_dir() and os.access(root, os.W_OK),
+            }
+            for root in runtime.PRODUCT_ROOTS
+        ],
+        "setup_warning": setup_warning,
     }
 
 

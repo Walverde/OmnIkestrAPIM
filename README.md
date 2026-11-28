@@ -72,6 +72,13 @@ da atualização quando os datasets forem ZFS. O script `--uninstall` remove os
 containers sem apagar dados. O Mercado Livre pode ser habilitado separadamente
 com `docker-compose.marketplace.yml`.
 
+Para backup e restauração lógica do PostgreSQL:
+
+```bash
+bash scripts/backup-truenas.sh
+bash scripts/restore-truenas.sh /caminho/para/backup.dump
+```
+
 For the initial TrueNAS SCALE 25.10 Custom App deployment, use the production
 Compose file and follow the dataset, image publishing, permissions, and security
 steps in [the TrueNAS installation guide](docs/deployment/truenas-scale-25.10.md).

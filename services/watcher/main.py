@@ -272,6 +272,11 @@ if __name__ == "__main__":
     try:
         while True:
             time.sleep(1)
+            heartbeat = Path("/tmp/watcher-heartbeat")
+            try:
+                heartbeat.touch()
+            except OSError:
+                pass
             if time.monotonic() >= next_reconciliation:
                 reconcile_catalog()
                 next_reconciliation = time.monotonic() + RECONCILE_INTERVAL_SECONDS

@@ -1,5 +1,10 @@
 # TrueNAS SCALE 25.10 (Goldeye) — implantação e operação
 
+> **Método atual:** use o instalador `scripts/install-truenas.sh` e o Compose
+> parametrizado `docker/docker-compose.truenas.yml`. Os exemplos antigos com
+> `/mnt/gbZaid`, `TRUENAS_LAN_IP=192.168.100.58` e secrets Mercado Livre no
+> Compose base foram substituídos.
+
 Este procedimento usa **Custom App com Compose YAML**. A aplicação exige
 autenticação de administrador, sessão e chave de serviço. O Compose atual
 vincula a porta ao IP LAN e usa HTTP; mantenha-o em rede confiável até configurar
